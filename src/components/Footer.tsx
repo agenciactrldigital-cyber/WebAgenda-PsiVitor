@@ -1,32 +1,39 @@
 import { Lock } from 'lucide-react';
 import { getWhatsAppNumber } from '../services/agendaService';
+import type { ClinicSettings } from '../types/agenda';
 
 interface FooterProps {
+  clinicSettings: ClinicSettings;
   onOpenAdmin: () => void;
 }
 
-export function Footer({ onOpenAdmin }: FooterProps) {
-  const whatsappPhone = getWhatsAppNumber();
+export function Footer({ clinicSettings, onOpenAdmin }: FooterProps) {
+  const whatsappPhone = getWhatsAppNumber(clinicSettings.whatsappNumber);
 
   return (
     <footer className="bg-[#F6F2EA] py-10">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
         <div>
-          <p className="font-display text-base font-medium text-[#2C241E]">Vitor Gomes</p>
+          <p className="font-display text-base font-medium text-[#2C241E]">
+            {clinicSettings.psychologistName}
+          </p>
           <p className="mt-1 font-mono-tabular text-xs text-[#665B50]">
-            Psicólogo Clínico · CRP 11/20859 · @psi.vitorgomes · Atendimento 100% Online
+            Psicólogo Clínico · {clinicSettings.crp}
+            {clinicSettings.instagramHandle ? ` · ${clinicSettings.instagramHandle}` : ''} · Atendimento {clinicSettings.modalityLabel}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-5 text-sm text-[#665B50]">
-          <a
-            href="https://instagram.com/psi.vitorgomes"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-[#2C241E] transition-colors"
-          >
-            Instagram
-          </a>
+          {clinicSettings.instagramUrl && (
+            <a
+              href={clinicSettings.instagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-[#2C241E] transition-colors"
+            >
+              Instagram
+            </a>
+          )}
           <a
             href={`https://wa.me/${whatsappPhone}`}
             target="_blank"
@@ -35,6 +42,14 @@ export function Footer({ onOpenAdmin }: FooterProps) {
           >
             WhatsApp
           </a>
+          {clinicSettings.contactEmail && (
+            <a
+              href={`mailto:${clinicSettings.contactEmail}`}
+              className="hover:text-[#2C241E] transition-colors"
+            >
+              E-mail
+            </a>
+          )}
           <button
             type="button"
             onClick={onOpenAdmin}

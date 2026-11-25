@@ -22,6 +22,7 @@ import {
 } from '../services/agendaService';
 import type {
   AvailabilityConfig,
+  ClinicSettings,
   PatientProfile,
   PendingBookingDraft,
   SlotHoldRecord,
@@ -29,6 +30,7 @@ import type {
 
 interface BookingSectionProps {
   availability: AvailabilityConfig;
+  clinicSettings: ClinicSettings;
   occupiedSlots: Set<string>;
   slotHolds: SlotHoldRecord[];
   loadingAvailability: boolean;
@@ -52,6 +54,7 @@ function toIsoDate(year: number, monthIndex: number, day: number): string {
 
 export function BookingSection({
   availability,
+  clinicSettings,
   occupiedSlots,
   slotHolds,
   loadingAvailability,
@@ -410,7 +413,8 @@ export function BookingSection({
                   Prévia do agendamento
                 </h3>
                 <p className="mt-0.5 text-xs text-[#665B50]">
-                  Atendimento individual · 100% Online ({availability.sessionDuration} min)
+                  Atendimento individual · {clinicSettings.modalityLabel} ({availability.sessionDuration} min)
+                  {clinicSettings.sessionFeeNote ? ` · ${clinicSettings.sessionFeeNote}` : ''}
                 </p>
               </div>
               <span className="inline-flex items-center gap-1.5 font-mono-tabular text-xs text-[#2F5243]">

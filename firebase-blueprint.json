@@ -122,12 +122,39 @@
         "active": { "type": "boolean" }
       },
       "required": ["title", "scheduleText", "platformLabel", "active"]
+    },
+    "ClinicSettings": {
+      "title": "ClinicSettings",
+      "description": "Configurações gerais do psicólogo, contato (WhatsApp/Instagram) e atendimento online.",
+      "type": "object",
+      "properties": {
+        "psychologistName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "crp": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "instagramHandle": { "type": "string", "maxLength": 60 },
+        "instagramUrl": { "type": "string", "maxLength": 300 },
+        "whatsappNumber": { "type": "string", "minLength": 8, "maxLength": 25 },
+        "contactEmail": { "type": "string", "maxLength": 160 },
+        "heroHeadline": { "type": "string", "maxLength": 200 },
+        "heroBio": { "type": "string", "maxLength": 1200 },
+        "trajectoryText": { "type": "string", "maxLength": 800 },
+        "approachLabel": { "type": "string", "maxLength": 80 },
+        "audienceLabel": { "type": "string", "maxLength": 120 },
+        "modalityLabel": { "type": "string", "maxLength": 80 },
+        "defaultMeetingLink": { "type": "string", "maxLength": 500 },
+        "sessionFeeNote": { "type": "string", "maxLength": 300 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["psychologistName", "crp", "whatsappNumber", "updatedAt"]
     }
   },
   "firestore": {
     "/availability/{docId}": {
       "schema": { "$ref": "#/entities/AvailabilityConfig" },
       "description": "Configuração pública da agenda (documento default)."
+    },
+    "/settings/{docId}": {
+      "schema": { "$ref": "#/entities/ClinicSettings" },
+      "description": "Configurações do psicólogo, contatos e atendimento online (documento clinic)."
     },
     "/patients/{uid}": {
       "schema": { "$ref": "#/entities/PatientProfile" },

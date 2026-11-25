@@ -13,7 +13,9 @@ import {
   MessageCircle,
   Plus,
   RefreshCw,
+  Save,
   Search,
+  Settings,
   Trash2,
   Video,
   XCircle,
@@ -25,6 +27,7 @@ import {
   formatFirestoreError,
   formatShortDatePtBr,
   saveAvailability,
+  saveClinicSettings,
   saveGroup,
   seedInitialFirestoreData,
   subscribeAllPatients,
@@ -37,6 +40,7 @@ import type {
   AppointmentRecord,
   AppointmentStatus,
   AvailabilityConfig,
+  ClinicSettings,
   GroupItem,
   PatientProfile,
 } from '../types/agenda';
@@ -45,11 +49,19 @@ import { PatientRecordDrawer } from './PatientRecordDrawer';
 interface AdminDashboardProps {
   user: User;
   availability: AvailabilityConfig & { existsInDb?: boolean };
+  clinicSettings: ClinicSettings & { existsInDb?: boolean };
   groups: GroupItem[];
   onBackToPublic: () => void;
 }
 
-type AdminTab = 'appointments' | 'patients' | 'schedule' | 'blocks' | 'groups' | 'deploy';
+type AdminTab =
+  | 'appointments'
+  | 'patients'
+  | 'schedule'
+  | 'blocks'
+  | 'groups'
+  | 'settings'
+  | 'deploy';
 
 const WEEKDAYS = [
   { value: 0, label: 'Dom', fullName: 'Domingo' },
@@ -112,11 +124,12 @@ const STATUS_META: Record<
 };
 
 const FIRESTORE_RULES_SNIPPET = `// Regras completas e atualizadas em firestore.rules na raiz do projeto
-// Coleções protegidas: availability, groups, patients, occupiedSlots, appointments`;
+// Coleções protegidas: availability, settings, groups, patients, occupiedSlots, slotHolds, appointments`;
 
 export function AdminDashboard({
   user,
   availability,
+  clinicSettings,
   groups,
   onBackToPublic,
 }: AdminDashboardProps) {
@@ -180,6 +193,44 @@ export function AdminDashboard({
   const [savingGroup, setSavingGroup] = useState(false);
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Clinic & psychologist settings state
+  const [settingsForm, setSettingsForm] = useState<ClinicSettings>({
+    psychologistName: clinicSettings.psychologistName,
+    crp: clinicSettings.crp,
+    instagramHandle: clinicSettings.instagramHandle,
+    instagramUrl: clinicSettings.instagramUrl,
+    whatsappNumber: clinicSettings.whatsappNumber,
+    contactEmail: clinicSettings.contactEmail,
+    heroHeadline: clinicSettings.heroHeadline,
+    heroBio: clinicSettings.heroBio,
+    trajectoryText: clinicSettings.trajectoryText,
+    approachLabel: clinicSettings.approachLabel,
+    audienceLabel: clinicSettings.audienceLabel,
+    modalityLabel: clinicSettings.modalityLabel,
+    defaultMeetingLink: clinicSettings.defaultMeetingLink,
+    sessionFeeNote: clinicSettings.sessionFeeNote,
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  useEffect(() => {
+    setSettingsForm({
+      psychologistName: clinicSettings.psychologistName,
+      crp: clinicSettings.crp,
+      instagramHandle: clinicSettings.instagramHandle,
+      instagramUrl: clinicSettings.instagramUrl,
+      whatsappNumber: clinicSettings.whatsappNumber,
+      contactEmail: clinicSettings.contactEmail,
+      heroHeadline: clinicSettings.heroHeadline,
+      heroBio: clinicSettings.heroBio,
+      trajectoryText: clinicSettings.trajectoryText,
+      approachLabel: clinicSettings.approachLabel,
+      audienceLabel: clinicSettings.audienceLabel,
+      modalityLabel: clinicSettings.modalityLabel,
+      defaultMeetingLink: clinicSettings.defaultMeetingLink,
+      sessionFeeNote: clinicSettings.sessionFeeNote,
+    });
+  }, [clinicSettings]);
 
   useEffect(() => {
     setWeeklyDays(availability.weeklyDays);
@@ -583,6 +634,19 @@ export function AdminDashboard({
     }
   };
 
+  const handleSaveSettingsSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    try {
+      await saveClinicSettings(settingsForm);
+      showSuccess('Configurações do psicólogo e do atendimento salvas com sucesso.');
+    } catch (err) {
+      showError(formatFirestoreError(err));
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const overrideKeys = Object.keys(dateOverrides).sort();
 
   return (
@@ -671,6 +735,7 @@ export function AdminDashboard({
             { id: 'schedule', label: 'Grade Flexível' },
             { id: 'blocks', label: `Bloqueios (${blockedDates.length})` },
             { id: 'groups', label: 'Grupo Online' },
+            { id: 'settings', label: 'Configurações' },
             { id: 'deploy', label: 'Vercel & Firebase' },
           ].map((tab) => {
             const active = activeTab === tab.id;
@@ -842,7 +907,8 @@ export function AdminDashboard({
                           <a
                             href={buildPsychologistWhatsAppConfirmUrl(
                               { ...appointment, meetingLink: linkValue },
-                              sessionDuration
+                              sessionDuration,
+                              clinicSettings
                             )}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -950,6 +1016,20 @@ export function AdminDashboard({
                           placeholder="https://meet.google.com/..."
                           className="min-h-[36px] flex-1 rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-xs text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
                         />
+                        {clinicSettings.defaultMeetingLink && !linkValue && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMeetingLinkDrafts((prev) => ({
+                                ...prev,
+                                [appointment.id]: clinicSettings.defaultMeetingLink,
+                              }))
+                            }
+                            className="min-h-[36px] rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 py-1.5 text-xs font-medium text-[#52473D] hover:bg-[#EFE4D2]/70 whitespace-nowrap cursor-pointer"
+                          >
+                            Usar link padrão
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={isBusy}
@@ -1603,7 +1683,317 @@ export function AdminDashboard({
           </div>
         )}
 
-        {/* TAB 6: VERCEL & FIREBASE GUIDE */}
+        {/* TAB 6: CLINIC & PSYCHOLOGIST SETTINGS */}
+        {activeTab === 'settings' && (
+          <form onSubmit={handleSaveSettingsSubmit} className="mt-6 space-y-6">
+            <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-6 space-y-6">
+              <div className="flex flex-col gap-2 border-b border-[#E2D9CB] pb-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#C1D5C7] bg-[#E9EFEA] text-[#2F5243]">
+                    <Settings className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <h2 className="font-display text-xl font-medium text-[#2C241E]">
+                      Configurações do Atendimento &amp; Psicólogo
+                    </h2>
+                    <p className="mt-0.5 text-sm text-[#52473D]">
+                      Defina seus dados profissionais, canais de contato e parâmetros básicos do atendimento online exibidos no site e nas confirmações.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 1: Professional Identity */}
+              <div className="space-y-4">
+                <h3 className="font-display text-base font-medium text-[#2C241E]">
+                  1. Identidade profissional
+                </h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="cfgName" className="block text-xs font-medium text-[#52473D]">
+                      Nome profissional completo *
+                    </label>
+                    <input
+                      id="cfgName"
+                      type="text"
+                      required
+                      minLength={2}
+                      maxLength={120}
+                      value={settingsForm.psychologistName}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, psychologistName: e.target.value }))
+                      }
+                      placeholder="Vitor Gomes"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="cfgCrp" className="block text-xs font-medium text-[#52473D]">
+                      Registro profissional (CRP) *
+                    </label>
+                    <input
+                      id="cfgCrp"
+                      type="text"
+                      required
+                      minLength={2}
+                      maxLength={60}
+                      value={settingsForm.crp}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, crp: e.target.value }))
+                      }
+                      placeholder="CRP 11/20859"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 font-mono-tabular text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="cfgIgHandle" className="block text-xs font-medium text-[#52473D]">
+                      Arroba do Instagram
+                    </label>
+                    <input
+                      id="cfgIgHandle"
+                      type="text"
+                      maxLength={60}
+                      value={settingsForm.instagramHandle}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, instagramHandle: e.target.value }))
+                      }
+                      placeholder="@psi.vitorgomes"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="cfgIgUrl" className="block text-xs font-medium text-[#52473D]">
+                      Link do Instagram
+                    </label>
+                    <input
+                      id="cfgIgUrl"
+                      type="url"
+                      maxLength={300}
+                      value={settingsForm.instagramUrl}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, instagramUrl: e.target.value }))
+                      }
+                      placeholder="https://instagram.com/psi.vitorgomes"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Contact */}
+              <div className="space-y-4 border-t border-[#E2D9CB] pt-5">
+                <h3 className="font-display text-base font-medium text-[#2C241E]">
+                  2. Canais de contato
+                </h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="cfgWhatsapp" className="block text-xs font-medium text-[#52473D]">
+                      WhatsApp de atendimento (DDI + DDD + Número) *
+                    </label>
+                    <input
+                      id="cfgWhatsapp"
+                      type="text"
+                      required
+                      minLength={8}
+                      maxLength={25}
+                      value={settingsForm.whatsappNumber}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, whatsappNumber: e.target.value }))
+                      }
+                      placeholder="5588999999999"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 font-mono-tabular text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                    <p className="mt-1 text-[11px] text-[#665B50]">
+                      Usado nos botões de contato dos pacientes e inscrição no grupo online (ex.: 5588999999999).
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="cfgEmail" className="block text-xs font-medium text-[#52473D]">
+                      E-mail público de contato (opcional)
+                    </label>
+                    <input
+                      id="cfgEmail"
+                      type="email"
+                      maxLength={160}
+                      value={settingsForm.contactEmail}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, contactEmail: e.target.value }))
+                      }
+                      placeholder="contato@vitorgomespsi.com.br"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Attendance Parameters */}
+              <div className="space-y-4 border-t border-[#E2D9CB] pt-5">
+                <h3 className="font-display text-base font-medium text-[#2C241E]">
+                  3. Configurações do atendimento online
+                </h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div>
+                    <label htmlFor="cfgModality" className="block text-xs font-medium text-[#52473D]">
+                      Formato do atendimento
+                    </label>
+                    <input
+                      id="cfgModality"
+                      type="text"
+                      maxLength={80}
+                      value={settingsForm.modalityLabel}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, modalityLabel: e.target.value }))
+                      }
+                      placeholder="100% Online"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="cfgApproach" className="block text-xs font-medium text-[#52473D]">
+                      Abordagem clínica
+                    </label>
+                    <input
+                      id="cfgApproach"
+                      type="text"
+                      maxLength={80}
+                      value={settingsForm.approachLabel}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, approachLabel: e.target.value }))
+                      }
+                      placeholder="Gestalt-terapia"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="cfgAudience" className="block text-xs font-medium text-[#52473D]">
+                      Público atendido
+                    </label>
+                    <input
+                      id="cfgAudience"
+                      type="text"
+                      maxLength={120}
+                      value={settingsForm.audienceLabel}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, audienceLabel: e.target.value }))
+                      }
+                      placeholder="Adultos e Adolescentes"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="cfgDefaultLink" className="block text-xs font-medium text-[#52473D]">
+                      Link padrão da sala virtual (opcional)
+                    </label>
+                    <input
+                      id="cfgDefaultLink"
+                      type="url"
+                      maxLength={500}
+                      value={settingsForm.defaultMeetingLink}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({
+                          ...prev,
+                          defaultMeetingLink: e.target.value,
+                        }))
+                      }
+                      placeholder="https://meet.google.com/..."
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                    <p className="mt-1 text-[11px] text-[#665B50]">
+                      Fica disponível no botão “Usar link padrão” em cada solicitação e como fallback na mensagem do WhatsApp.
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="cfgFeeNote" className="block text-xs font-medium text-[#52473D]">
+                      Informação de valor / combinado da sessão (opcional)
+                    </label>
+                    <input
+                      id="cfgFeeNote"
+                      type="text"
+                      maxLength={300}
+                      value={settingsForm.sessionFeeNote}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({ ...prev, sessionFeeNote: e.target.value }))
+                      }
+                      placeholder="Ex.: Valor combinado no primeiro contato ou R$ 150,00"
+                      className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Public Presentation Texts */}
+              <div className="space-y-4 border-t border-[#E2D9CB] pt-5">
+                <h3 className="font-display text-base font-medium text-[#2C241E]">
+                  4. Textos de apresentação do site
+                </h3>
+                <div>
+                  <label htmlFor="cfgHeadline" className="block text-xs font-medium text-[#52473D]">
+                    Título principal (Hero)
+                  </label>
+                  <input
+                    id="cfgHeadline"
+                    type="text"
+                    maxLength={200}
+                    value={settingsForm.heroHeadline}
+                    onChange={(e) =>
+                      setSettingsForm((prev) => ({ ...prev, heroHeadline: e.target.value }))
+                    }
+                    className="mt-1 min-h-[42px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="cfgBio" className="block text-xs font-medium text-[#52473D]">
+                    Texto de boas-vindas (apresentação)
+                  </label>
+                  <textarea
+                    id="cfgBio"
+                    rows={3}
+                    maxLength={1200}
+                    value={settingsForm.heroBio}
+                    onChange={(e) =>
+                      setSettingsForm((prev) => ({ ...prev, heroBio: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] p-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="cfgTrajectory" className="block text-xs font-medium text-[#52473D]">
+                    Resumo da trajetória profissional
+                  </label>
+                  <textarea
+                    id="cfgTrajectory"
+                    rows={2}
+                    maxLength={800}
+                    value={settingsForm.trajectoryText}
+                    onChange={(e) =>
+                      setSettingsForm((prev) => ({ ...prev, trajectoryText: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] p-3 text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E2D9CB] pt-5">
+                <p className="text-xs text-[#665B50]">
+                  As alterações refletem em tempo real no site público, nos agendamentos e na Área do Paciente.
+                </p>
+                <button
+                  type="submit"
+                  disabled={savingSettings}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#2F5243] px-6 py-2.5 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] disabled:opacity-60 cursor-pointer"
+                >
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  <span>{savingSettings ? 'Salvando...' : 'Salvar configurações'}</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {/* TAB 7: VERCEL & FIREBASE GUIDE */}
         {activeTab === 'deploy' && (
           <div className="mt-6 space-y-6">
             <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-6 space-y-4">

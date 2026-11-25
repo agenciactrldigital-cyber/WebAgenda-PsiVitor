@@ -1,12 +1,13 @@
 import { MessageCircle, ShieldCheck, Video } from 'lucide-react';
 import { buildGroupWhatsAppUrl } from '../services/agendaService';
-import type { GroupItem } from '../types/agenda';
+import type { ClinicSettings, GroupItem } from '../types/agenda';
 
 interface OnlineGroupSectionProps {
   groups: GroupItem[];
+  clinicSettings: ClinicSettings;
 }
 
-export function OnlineGroupSection({ groups }: OnlineGroupSectionProps) {
+export function OnlineGroupSection({ groups, clinicSettings }: OnlineGroupSectionProps) {
   const activeGroups = groups.filter((g) => g.active);
 
   if (activeGroups.length === 0) {
@@ -56,7 +57,7 @@ export function OnlineGroupSection({ groups }: OnlineGroupSectionProps) {
 
                   <div className="mt-6">
                     <a
-                      href={buildGroupWhatsAppUrl(group.title)}
+                      href={buildGroupWhatsAppUrl(group.title, clinicSettings)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#2F5243] px-5 py-3 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] transition-colors whitespace-nowrap"

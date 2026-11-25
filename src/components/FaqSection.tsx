@@ -1,36 +1,41 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import type { ClinicSettings } from '../types/agenda';
 
-const FAQ_ITEMS = [
-  {
-    question: 'Como funciona a confirmação após enviar uma solicitação de horário?',
-    answer:
-      'Assim que você envia o pedido, o horário fica reservado na agenda para evitar conflitos. Em seguida, entro em contato pelo WhatsApp ou e-mail informado para confirmar o encontro e enviar o link da sala virtual.',
-  },
-  {
-    question: 'Qual é a duração das sessões e o formato do atendimento?',
-    answer:
-      'As sessões individuais duram 50 minutos e acontecem exclusivamente online por videochamada, com sigilo profissional garantido.',
-  },
-  {
-    question: 'Você atende adolescentes além de adultos?',
-    answer:
-      'Sim. O acompanhamento online contempla adultos lidando com ansiedade, trabalho, parentalidade, relações e transições, além de adolescentes em busca de um espaço seguro de escuta. Para menores de 18 anos, realizamos um alinhamento inicial com os responsáveis.',
-  },
-  {
-    question: 'Como funciona o sigilo no formulário e durante as sessões?',
-    answer:
-      'Os dados e observações enviados por aqui não ficam visíveis a outros visitantes e são acessados exclusivamente pelo psicólogo, seguindo o Código de Ética Profissional.',
-  },
-  {
-    question: 'O grupo O Mito da Masculinidade substitui a terapia individual?',
-    answer:
-      'Não. Trata-se de uma intervenção psicossocial e vivencial em grupo (também realizada exclusivamente online), com combinados específicos de câmera aberta, sigilo e não gravação, podendo caminhar em paralelo ao processo individual.',
-  },
-];
+interface FaqSectionProps {
+  sessionDuration: number;
+  clinicSettings: ClinicSettings;
+}
 
-export function FaqSection() {
+export function FaqSection({ sessionDuration, clinicSettings }: FaqSectionProps) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
+
+  const faqItems = [
+    {
+      question: 'Como funciona a confirmação após enviar uma solicitação de horário?',
+      answer:
+        'Assim que você envia o pedido, o horário fica reservado na agenda para evitar conflitos. Em seguida, entro em contato pelo WhatsApp ou e-mail informado para confirmar o encontro e disponibilizar o link da sala virtual.',
+    },
+    {
+      question: 'Qual é a duração das sessões e o formato do atendimento?',
+      answer: `As sessões individuais duram ${sessionDuration} minutos e acontecem no formato ${clinicSettings.modalityLabel} por videochamada, com sigilo profissional garantido.${
+        clinicSettings.sessionFeeNote ? ` ${clinicSettings.sessionFeeNote}` : ''
+      }`,
+    },
+    {
+      question: 'Quem pode agendar atendimento?',
+      answer: `O acompanhamento online contempla ${clinicSettings.audienceLabel.toLowerCase()}, oferecendo um espaço seguro de escuta. Para menores de 18 anos, realizamos um alinhamento inicial com os responsáveis.`,
+    },
+    {
+      question: 'Como funciona o sigilo no formulário e durante as sessões?',
+      answer: `Os dados e observações enviados por aqui não ficam visíveis a outros visitantes e são acessados exclusivamente pelo psicólogo ${clinicSettings.psychologistName} (${clinicSettings.crp}), seguindo o Código de Ética Profissional.`,
+    },
+    {
+      question: 'O grupo O Mito da Masculinidade substitui a terapia individual?',
+      answer:
+        'Não. Trata-se de uma intervenção psicossocial e vivencial em grupo (também realizada exclusivamente online), com combinados específicos de câmera aberta, sigilo e não gravação, podendo caminhar em paralelo ao processo individual.',
+    },
+  ];
 
   return (
     <section id="duvidas" className="border-b border-[#E2D9CB] bg-[#F6F2EA] py-14 sm:py-20">
@@ -45,7 +50,7 @@ export function FaqSection() {
         </div>
 
         <div className="mt-8 divide-y divide-[#E2D9CB] rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] px-5 sm:px-8">
-          {FAQ_ITEMS.map((item, idx) => {
+          {faqItems.map((item, idx) => {
             const isOpen = openIndex === idx;
             return (
               <div key={item.question} className="py-2">

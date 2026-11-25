@@ -87,3 +87,21 @@ export interface SlotHoldRecord {
   ownerUid: string;
   expiresAtMs: number;
 }
+
+export interface ClinicSettings {
+  psychologistName: string;
+  crp: string;
+  instagramHandle: string;
+  instagramUrl: string;
+  whatsappNumber: string;
+  contactEmail: string;
+  heroHeadline: string;
+  heroBio: string;
+  trajectoryText: string;
+  approachLabel: string;
+  audienceLabel: string;
+  modalityLabel: string;
+  defaultMeetingLink: string;
+  sessionFeeNote: string;
+  updatedAt?: unknown;
+}

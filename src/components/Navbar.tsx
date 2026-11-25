@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Menu, X } from 'lucide-react';
 
 interface NavbarProps {
+  psychologistName: string;
   isPatientSignedIn: boolean;
   onScrollToSection: (sectionId: string) => void;
   onOpenPatientPortal: () => void;
@@ -15,6 +16,7 @@ const NAV_LINKS = [
 ];
 
 export function Navbar({
+  psychologistName,
   isPatientSignedIn,
   onScrollToSection,
   onOpenPatientPortal,
@@ -37,7 +39,7 @@ export function Navbar({
           }}
           className="font-display text-lg font-medium tracking-tight text-[#2C241E] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2F5243] rounded"
         >
-          Vitor Gomes
+          {psychologistName || 'Vitor Gomes'}
         </a>
 
         <nav className="hidden md:flex items-center gap-7" aria-label="Navegação principal">

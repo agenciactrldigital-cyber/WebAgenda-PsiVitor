@@ -71,6 +71,30 @@ service cloud.firestore {
         && data.active is bool;
     }
 
+    function isValidClinicSettings(data) {
+      return data.keys().hasAll(['psychologistName', 'crp', 'whatsappNumber', 'updatedAt'])
+        && data.keys().hasOnly([
+          'psychologistName', 'crp', 'instagramHandle', 'instagramUrl', 'whatsappNumber',
+          'contactEmail', 'heroHeadline', 'heroBio', 'trajectoryText', 'approachLabel',
+          'audienceLabel', 'modalityLabel', 'defaultMeetingLink', 'sessionFeeNote', 'updatedAt'
+        ])
+        && data.psychologistName is string && data.psychologistName.size() >= 2 && data.psychologistName.size() <= 120
+        && data.crp is string && data.crp.size() >= 2 && data.crp.size() <= 60
+        && data.whatsappNumber is string && data.whatsappNumber.size() >= 8 && data.whatsappNumber.size() <= 25
+        && (!('instagramHandle' in data) || (data.instagramHandle is string && data.instagramHandle.size() <= 60))
+        && (!('instagramUrl' in data) || (data.instagramUrl is string && data.instagramUrl.size() <= 300))
+        && (!('contactEmail' in data) || (data.contactEmail is string && data.contactEmail.size() <= 160))
+        && (!('heroHeadline' in data) || (data.heroHeadline is string && data.heroHeadline.size() <= 200))
+        && (!('heroBio' in data) || (data.heroBio is string && data.heroBio.size() <= 1200))
+        && (!('trajectoryText' in data) || (data.trajectoryText is string && data.trajectoryText.size() <= 800))
+        && (!('approachLabel' in data) || (data.approachLabel is string && data.approachLabel.size() <= 80))
+        && (!('audienceLabel' in data) || (data.audienceLabel is string && data.audienceLabel.size() <= 120))
+        && (!('modalityLabel' in data) || (data.modalityLabel is string && data.modalityLabel.size() <= 80))
+        && (!('defaultMeetingLink' in data) || (data.defaultMeetingLink is string && data.defaultMeetingLink.size() <= 500))
+        && (!('sessionFeeNote' in data) || (data.sessionFeeNote is string && data.sessionFeeNote.size() <= 300))
+        && data.updatedAt == request.time;
+    }
+
     function isValidPatientFields(data) {
       return data.keys().hasAll([
           'uid', 'email', 'fullName', 'phone', 'birthDate', 'cityState', 'occupation',
@@ -207,6 +231,13 @@ service cloud.firestore {
       allow get: if isValidId(docId);
       allow list: if true;
       allow create, update: if isValidId(docId) && isPsychologist() && isValidAvailability(incoming());
+      allow delete: if isValidId(docId) && isPsychologist();
+    }
+
+    match /settings/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if true;
+      allow create, update: if isValidId(docId) && isPsychologist() && isValidClinicSettings(incoming());
       allow delete: if isValidId(docId) && isPsychologist();
     }
 

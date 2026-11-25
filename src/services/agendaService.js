@@ -67,9 +67,33 @@ export const DEFAULT_GROUPS = [
   },
 ];
 
-export function getWhatsAppNumber() {
-  const raw = import.meta.env.VITE_WHATSAPP_NUMBER || '5588999999999';
-  return String(raw).replace(/\D/g, '');
+/** @type {import('../types/agenda').ClinicSettings} */
+export const DEFAULT_CLINIC_SETTINGS = {
+  psychologistName: 'Vitor Gomes',
+  crp: 'CRP 11/20859',
+  instagramHandle: '@psi.vitorgomes',
+  instagramUrl: 'https://instagram.com/psi.vitorgomes',
+  whatsappNumber: getWhatsAppNumber(),
+  contactEmail: '',
+  heroHeadline: 'Iluminar o presente para caminhar com mais leveza.',
+  heroBio:
+    'Sou Vitor Gomes, psicólogo clínico e Gestalt-terapeuta. Com percurso na clínica, na psicologia escolar e na filosofia, ofereço um espaço de escuta autêntica, humana e sem julgamentos — no aqui e agora — para adultos e adolescentes em atendimento exclusivamente online.',
+  trajectoryText:
+    'Psicólogo clínico (CRP 11/20859) com atuação na clínica, psicologia escolar e formação em filosofia — integrando rigor reflexivo e escuta sensível para adultos e adolescentes.',
+  approachLabel: 'Gestalt-terapia',
+  audienceLabel: 'Adultos e Adolescentes',
+  modalityLabel: '100% Online',
+  defaultMeetingLink: '',
+  sessionFeeNote: '',
+};
+
+export function getWhatsAppNumber(overrideNumber) {
+  const raw = overrideNumber || import.meta.env.VITE_WHATSAPP_NUMBER || '5588999999999';
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.length >= 10 && digits.length <= 11 && !digits.startsWith('55')) {
+    return `55${digits}`;
+  }
+  return digits;
 }
 
 export function formatFirestoreError(error) {
@@ -871,8 +895,83 @@ export async function deleteGroup(groupId) {
   await deleteDoc(doc(db, 'groups', groupId));
 }
 
+export function subscribeClinicSettings(onData, onError) {
+  const ref = doc(db, 'settings', 'clinic');
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        onData({ ...DEFAULT_CLINIC_SETTINGS, existsInDb: false });
+        return;
+      }
+      const d = snapshot.data();
+      onData({
+        psychologistName: d.psychologistName || DEFAULT_CLINIC_SETTINGS.psychologistName,
+        crp: d.crp || DEFAULT_CLINIC_SETTINGS.crp,
+        instagramHandle: d.instagramHandle ?? DEFAULT_CLINIC_SETTINGS.instagramHandle,
+        instagramUrl: d.instagramUrl ?? DEFAULT_CLINIC_SETTINGS.instagramUrl,
+        whatsappNumber: d.whatsappNumber || DEFAULT_CLINIC_SETTINGS.whatsappNumber,
+        contactEmail: d.contactEmail || '',
+        heroHeadline: d.heroHeadline || DEFAULT_CLINIC_SETTINGS.heroHeadline,
+        heroBio: d.heroBio || DEFAULT_CLINIC_SETTINGS.heroBio,
+        trajectoryText: d.trajectoryText || DEFAULT_CLINIC_SETTINGS.trajectoryText,
+        approachLabel: d.approachLabel || DEFAULT_CLINIC_SETTINGS.approachLabel,
+        audienceLabel: d.audienceLabel || DEFAULT_CLINIC_SETTINGS.audienceLabel,
+        modalityLabel: d.modalityLabel || DEFAULT_CLINIC_SETTINGS.modalityLabel,
+        defaultMeetingLink: d.defaultMeetingLink || '',
+        sessionFeeNote: d.sessionFeeNote || '',
+        existsInDb: true,
+      });
+    },
+    (error) => {
+      if (onError) onError(formatFirestoreError(error));
+    }
+  );
+}
+
+export async function saveClinicSettings(settingsData) {
+  const psychologistName = String(settingsData.psychologistName || '').trim();
+  const crp = String(settingsData.crp || '').trim();
+  const cleanWhatsapp = getWhatsAppNumber(settingsData.whatsappNumber);
+
+  if (psychologistName.length < 2) {
+    throw new Error('Informe o nome do psicólogo.');
+  }
+  if (crp.length < 2) {
+    throw new Error('Informe o registro profissional (CRP).');
+  }
+  if (cleanWhatsapp.length < 8) {
+    throw new Error('Informe um número de WhatsApp válido com DDD.');
+  }
+
+  const payload = {
+    psychologistName,
+    crp,
+    instagramHandle: String(settingsData.instagramHandle || '').trim(),
+    instagramUrl: String(settingsData.instagramUrl || '').trim(),
+    whatsappNumber: cleanWhatsapp,
+    contactEmail: String(settingsData.contactEmail || '').trim(),
+    heroHeadline: String(settingsData.heroHeadline || '').trim(),
+    heroBio: String(settingsData.heroBio || '').trim(),
+    trajectoryText: String(settingsData.trajectoryText || '').trim(),
+    approachLabel: String(settingsData.approachLabel || '').trim(),
+    audienceLabel: String(settingsData.audienceLabel || '').trim(),
+    modalityLabel: String(settingsData.modalityLabel || '').trim(),
+    defaultMeetingLink: String(settingsData.defaultMeetingLink || '').trim(),
+    sessionFeeNote: String(settingsData.sessionFeeNote || '').trim(),
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    await setDoc(doc(db, 'settings', 'clinic'), payload, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'settings/clinic');
+  }
+}
+
 export async function seedInitialFirestoreData() {
   await saveAvailability(DEFAULT_AVAILABILITY);
+  await saveClinicSettings(DEFAULT_CLINIC_SETTINGS);
   const firstGroup = DEFAULT_GROUPS[0];
   await addDoc(collection(db, 'groups'), {
     title: firstGroup.title,
@@ -884,29 +983,41 @@ export async function seedInitialFirestoreData() {
   });
 }
 
-export function buildPatientWhatsAppUrl(appointment, sessionDuration = 50) {
-  const phone = getWhatsAppNumber();
+export function buildPatientWhatsAppUrl(appointment, sessionDuration = 50, clinicSettings) {
+  const phone = getWhatsAppNumber(clinicSettings?.whatsappNumber);
+  const psyName = clinicSettings?.psychologistName || DEFAULT_CLINIC_SETTINGS.psychologistName;
   const formattedDate = formatShortDatePtBr(appointment.date);
-  const message = `Olá, Vitor! Acabei de enviar uma solicitação de psicoterapia online pelo site.\n\nNome: ${appointment.patientName}\nData: ${formattedDate}\nHorário: ${appointment.timeSlot} (${sessionDuration} min)\nModalidade: Online\n\nFico no aguardo da confirmação.`;
+  const message = `Olá, ${psyName}! Acabei de enviar uma solicitação de psicoterapia online pelo site.\n\nNome: ${appointment.patientName}\nData: ${formattedDate}\nHorário: ${appointment.timeSlot} (${sessionDuration} min)\nModalidade: Online\n\nFico no aguardo da confirmação.`;
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
-export function buildPsychologistWhatsAppConfirmUrl(appointment, sessionDuration = 50) {
+export function buildPsychologistWhatsAppConfirmUrl(
+  appointment,
+  sessionDuration = 50,
+  clinicSettings
+) {
   const digits = String(appointment.patientContact || '').replace(/\D/g, '');
   const normalizedPhone = digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
   const formattedDate = formatShortDatePtBr(appointment.date);
-  const linkInfo = appointment.meetingLink
-    ? `\nLink da sala virtual: ${appointment.meetingLink}`
+  const psyName = clinicSettings?.psychologistName || DEFAULT_CLINIC_SETTINGS.psychologistName;
+  const crp = clinicSettings?.crp || DEFAULT_CLINIC_SETTINGS.crp;
+  const effectiveLink = appointment.meetingLink || clinicSettings?.defaultMeetingLink || '';
+  const linkInfo = effectiveLink
+    ? `\nLink da sala virtual: ${effectiveLink}`
     : '\nAntes do nosso encontro, enviarei o link da sala virtual por aqui e na sua Área do Paciente.';
-  const message = `Olá, ${appointment.patientName}! Aqui é o psicólogo Vitor Gomes (CRP 11/20859).\n\nSeu horário de psicoterapia online está confirmado para ${formattedDate} às ${appointment.timeSlot} (duração de ${sessionDuration} min).${linkInfo}\n\nAté breve!`;
+  const message = `Olá, ${appointment.patientName}! Aqui é o psicólogo ${psyName} (${crp}).\n\nSeu horário de psicoterapia online está confirmado para ${formattedDate} às ${appointment.timeSlot} (duração de ${sessionDuration} min).${linkInfo}\n\nAté breve!`;
   if (normalizedPhone.length >= 12) {
     return `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
   }
   return `https://wa.me/?text=${encodeURIComponent(message)}`;
 }
 
-export function buildGroupWhatsAppUrl(groupTitle = 'O Mito da Masculinidade') {
-  const phone = getWhatsAppNumber();
-  const message = `Olá, Vitor! Gostaria de saber mais e manifestar interesse no grupo terapêutico online "${groupTitle}".`;
+export function buildGroupWhatsAppUrl(
+  groupTitle = 'O Mito da Masculinidade',
+  clinicSettings
+) {
+  const phone = getWhatsAppNumber(clinicSettings?.whatsappNumber);
+  const psyName = clinicSettings?.psychologistName || DEFAULT_CLINIC_SETTINGS.psychologistName;
+  const message = `Olá, ${psyName}! Gostaria de saber mais e manifestar interesse no grupo terapêutico online "${groupTitle}".`;
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }

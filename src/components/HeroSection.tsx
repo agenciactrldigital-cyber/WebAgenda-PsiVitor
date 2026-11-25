@@ -1,28 +1,40 @@
 import { ArrowRight } from 'lucide-react';
+import type { ClinicSettings } from '../types/agenda';
 import { LanternMark } from './LanternMark';
 
 interface HeroSectionProps {
   sessionDuration: number;
+  clinicSettings: ClinicSettings;
   onBookClick: () => void;
   onGroupClick: () => void;
 }
 
-export function HeroSection({ sessionDuration, onBookClick, onGroupClick }: HeroSectionProps) {
+export function HeroSection({
+  sessionDuration,
+  clinicSettings,
+  onBookClick,
+  onGroupClick,
+}: HeroSectionProps) {
   return (
     <section id="inicio" className="border-b border-[#E2D9CB] bg-[#F6F2EA]">
       <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20">
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-stretch lg:gap-12">
           <div className="flex flex-col justify-center lg:col-span-7">
             <p className="font-mono-tabular text-xs sm:text-sm tracking-wide text-[#665B50]">
-              @psi.vitorgomes <span aria-hidden="true">·</span> CRP 11/20859 <span aria-hidden="true">·</span> Psicoterapia Online
+              {clinicSettings.instagramHandle && (
+                <>
+                  {clinicSettings.instagramHandle} <span aria-hidden="true">·</span>{' '}
+                </>
+              )}
+              {clinicSettings.crp} <span aria-hidden="true">·</span> Psicoterapia Online
             </p>
 
             <h1 className="mt-4 font-display text-3xl sm:text-4xl lg:text-[3.15rem] font-medium leading-[1.14] tracking-tight text-[#2C241E] text-balance">
-              Iluminar o presente para caminhar com mais leveza.
+              {clinicSettings.heroHeadline}
             </h1>
 
             <p className="mt-5 max-w-2xl text-base sm:text-[17px] leading-relaxed text-[#52473D]">
-              Sou Vitor Gomes, psicólogo clínico e Gestalt-terapeuta. Com percurso na clínica, na psicologia escolar e na filosofia, ofereço um espaço de escuta autêntica, humana e sem julgamentos — no aqui e agora — para adultos e adolescentes em atendimento exclusivamente online.
+              {clinicSettings.heroBio}
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-4">
@@ -66,7 +78,7 @@ export function HeroSection({ sessionDuration, onBookClick, onGroupClick }: Hero
                       A Metáfora da Lanterna
                     </p>
                     <p className="font-mono-tabular text-xs text-[#665B50]">
-                      Gestalt-terapia · Aqui e agora
+                      {clinicSettings.approachLabel} · Aqui e agora
                     </p>
                   </div>
                 </div>
@@ -83,7 +95,7 @@ export function HeroSection({ sessionDuration, onBookClick, onGroupClick }: Hero
 
               <div className="relative rounded-xl bg-[#EFE4D2]/70 px-4 py-3 text-xs sm:text-sm text-[#2C241E] border border-[#E2D9CB]">
                 <span className="font-mono-tabular text-[#665B50]">Para quem:</span>{' '}
-                Adultos em transições, trabalho, parentalidade e ansiedade · Adolescentes buscando escuta segura.
+                {clinicSettings.audienceLabel} · transições, trabalho, parentalidade, ansiedade e escuta segura.
               </div>
             </div>
           </div>
@@ -99,19 +111,21 @@ export function HeroSection({ sessionDuration, onBookClick, onGroupClick }: Hero
           <div>
             <p className="font-mono-tabular text-xs text-[#665B50]">Formato</p>
             <p className="mt-1 font-display text-lg font-medium text-[#2C241E]">
-              100% Online
+              {clinicSettings.modalityLabel}
             </p>
           </div>
           <div>
             <p className="font-mono-tabular text-xs text-[#665B50]">Abordagem</p>
             <p className="mt-1 font-display text-lg font-medium text-[#2C241E]">
-              Gestalt-terapia
+              {clinicSettings.approachLabel}
             </p>
           </div>
           <div>
-            <p className="font-mono-tabular text-xs text-[#665B50]">Público</p>
+            <p className="font-mono-tabular text-xs text-[#665B50]">
+              {clinicSettings.sessionFeeNote ? 'Sessão / Investimento' : 'Público'}
+            </p>
             <p className="mt-1 font-display text-lg font-medium text-[#2C241E]">
-              Adultos e Adolescentes
+              {clinicSettings.sessionFeeNote || clinicSettings.audienceLabel}
             </p>
           </div>
         </div>

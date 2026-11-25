@@ -1,4 +1,9 @@
+import type { ClinicSettings } from '../types/agenda';
 import { LanternMark } from './LanternMark';
+
+interface AboutApproachSectionProps {
+  clinicSettings: ClinicSettings;
+}
 
 const PILLARS = [
   {
@@ -18,7 +23,7 @@ const PILLARS = [
   },
 ];
 
-export function AboutApproachSection() {
+export function AboutApproachSection({ clinicSettings }: AboutApproachSectionProps) {
   return (
     <section id="sobre" className="border-b border-[#E2D9CB] bg-[#F6F2EA] py-14 sm:py-20">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
@@ -26,7 +31,7 @@ export function AboutApproachSection() {
           <div className="lg:col-span-5">
             <div className="inline-flex items-center gap-2 text-xs font-mono-tabular text-[#B8732A]">
               <LanternMark className="h-4 w-4" />
-              <span>Gestalt-terapia &amp; Clínica Online</span>
+              <span>{clinicSettings.approachLabel} &amp; Clínica Online</span>
             </div>
 
             <h2 className="mt-3 font-display text-2xl sm:text-3xl font-medium text-[#2C241E] text-balance">
@@ -40,7 +45,7 @@ export function AboutApproachSection() {
             <div className="mt-6 rounded-xl border border-[#E2D9CB] bg-[#EFE4D2]/60 p-5">
               <p className="font-mono-tabular text-xs text-[#665B50]">Trajetória</p>
               <p className="mt-1.5 text-sm leading-relaxed text-[#2C241E]">
-                Psicólogo clínico (CRP 11/20859) com atuação na clínica, psicologia escolar e formação em filosofia — integrando rigor reflexivo e escuta sensível para adultos e adolescentes.
+                {clinicSettings.trajectoryText}
               </p>
             </div>
           </div>

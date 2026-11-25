@@ -19,7 +19,12 @@ import {
   subscribePatientAppointments,
 } from '../services/agendaService';
 import { logoutUser } from '../services/authService';
-import type { AppointmentRecord, AppointmentStatus, PatientProfile } from '../types/agenda';
+import type {
+  AppointmentRecord,
+  AppointmentStatus,
+  ClinicSettings,
+  PatientProfile,
+} from '../types/agenda';
 import { LanternMark } from './LanternMark';
 import { PatientAuthForm } from './PatientAuthForm';
 import { PatientIntakeForm } from './PatientIntakeForm';
@@ -29,6 +34,7 @@ interface PatientPortalProps {
   authReady: boolean;
   patientProfile: PatientProfile | null;
   sessionDuration: number;
+  clinicSettings: ClinicSettings;
   onBackToPublic: () => void;
   onBookNewSession: () => void;
 }
@@ -69,6 +75,7 @@ export function PatientPortal({
   authReady,
   patientProfile,
   sessionDuration,
+  clinicSettings,
   onBackToPublic,
   onBookNewSession,
 }: PatientPortalProps) {
@@ -149,7 +156,7 @@ export function PatientPortal({
                   Área do Paciente
                 </h1>
                 <p className="font-mono-tabular text-xs text-[#665B50]">
-                  Vitor Gomes · CRP 11/20859
+                  {clinicSettings.psychologistName} · {clinicSettings.crp}
                 </p>
               </div>
             </div>
@@ -219,7 +226,7 @@ export function PatientPortal({
                 Complete sua ficha inicial
               </h1>
               <p className="mt-2 text-sm leading-relaxed text-[#52473D]">
-                Para oferecer um acompanhamento psicológico seguro e ético, preencha abaixo as informações essenciais que ficam salvas com sigilo para o psicólogo Vitor Gomes.
+                Para oferecer um acompanhamento psicológico seguro e ético, preencha abaixo as informações essenciais que ficam salvas com sigilo para o psicólogo {clinicSettings.psychologistName}.
               </p>
             </div>
 

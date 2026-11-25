@@ -14,10 +14,12 @@ import { PatientPortal } from './components/PatientPortal';
 import {
   clearPendingBookingDraft,
   DEFAULT_AVAILABILITY,
+  DEFAULT_CLINIC_SETTINGS,
   DEFAULT_GROUPS,
   loadPendingBookingDraft,
   savePendingBookingDraft,
   subscribeAvailability,
+  subscribeClinicSettings,
   subscribeGroups,
   subscribeOccupiedSlots,
   subscribePatientProfile,
@@ -26,6 +28,7 @@ import {
 import { isAuthorizedPsychologist, subscribeToAuthChanges } from './services/authService';
 import type {
   AvailabilityConfig,
+  ClinicSettings,
   GroupItem,
   PatientProfile,
   PendingBookingDraft,
@@ -52,6 +55,9 @@ export default function App() {
 
   const [availability, setAvailability] = useState<AvailabilityConfig & { existsInDb?: boolean }>(
     DEFAULT_AVAILABILITY
+  );
+  const [clinicSettings, setClinicSettings] = useState<ClinicSettings & { existsInDb?: boolean }>(
+    DEFAULT_CLINIC_SETTINGS
   );
   const [loadingAvailability, setLoadingAvailability] = useState(true);
   const [occupiedSlots, setOccupiedSlots] = useState<Set<string>>(() => new Set());
@@ -86,6 +92,12 @@ export default function App() {
       }
     );
 
+    const unsubClinicSettings = subscribeClinicSettings(
+      (data: ClinicSettings & { existsInDb?: boolean }) => {
+        setClinicSettings(data);
+      }
+    );
+
     const unsubOccupied = subscribeOccupiedSlots((slotSet: Set<string>) => {
       setOccupiedSlots(slotSet);
     });
@@ -105,6 +117,7 @@ export default function App() {
 
     return () => {
       unsubAvailability();
+      unsubClinicSettings();
       unsubOccupied();
       unsubHolds();
       unsubGroups();
@@ -222,6 +235,7 @@ export default function App() {
       <AdminDashboard
         user={authorizedAdmin}
         availability={availability}
+        clinicSettings={clinicSettings}
         groups={groups}
         onBackToPublic={() => navigateTo('public')}
       />
@@ -238,6 +252,7 @@ export default function App() {
         loadingPatientProfile={loadingPatientProfile}
         pendingDraft={pendingDraft}
         sessionDuration={availability.sessionDuration}
+        clinicSettings={clinicSettings}
         onClearDraft={handleClearDraft}
         onBackToBooking={() => scrollToSection('agendar')}
         onOpenPatientPortal={() => navigateTo('patient')}
@@ -252,6 +267,7 @@ export default function App() {
         authReady={authReady}
         patientProfile={patientProfile}
         sessionDuration={availability.sessionDuration}
+        clinicSettings={clinicSettings}
         onBackToPublic={() => navigateTo('public')}
         onBookNewSession={() => scrollToSection('agendar')}
       />
@@ -261,6 +277,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F6F2EA] text-[#2C241E]">
       <Navbar
+        psychologistName={clinicSettings.psychologistName}
         isPatientSignedIn={Boolean(currentUser)}
         onScrollToSection={scrollToSection}
         onOpenPatientPortal={() => navigateTo('patient')}
@@ -268,11 +285,13 @@ export default function App() {
       <main>
         <HeroSection
           sessionDuration={availability.sessionDuration}
+          clinicSettings={clinicSettings}
           onBookClick={() => scrollToSection('agendar')}
           onGroupClick={() => scrollToSection('grupo')}
         />
         <BookingSection
           availability={availability}
+          clinicSettings={clinicSettings}
           occupiedSlots={occupiedSlots}
           slotHolds={slotHolds}
           loadingAvailability={loadingAvailability}
@@ -282,11 +301,14 @@ export default function App() {
           onStartBookingFlow={handleStartBookingFlow}
           onResumePendingDraft={handleResumePendingDraft}
         />
-        <AboutApproachSection />
-        <OnlineGroupSection groups={groups} />
-        <FaqSection />
+        <AboutApproachSection clinicSettings={clinicSettings} />
+        <OnlineGroupSection groups={groups} clinicSettings={clinicSettings} />
+        <FaqSection
+          sessionDuration={availability.sessionDuration}
+          clinicSettings={clinicSettings}
+        />
       </main>
-      <Footer onOpenAdmin={() => navigateTo('admin')} />
+      <Footer clinicSettings={clinicSettings} onOpenAdmin={() => navigateTo('admin')} />
     </div>
   );
 }

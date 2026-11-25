@@ -20,7 +20,12 @@ import {
   releaseTemporarySlotHold,
 } from '../services/agendaService';
 import { logoutUser } from '../services/authService';
-import type { AppointmentRecord, PatientProfile, PendingBookingDraft } from '../types/agenda';
+import type {
+  AppointmentRecord,
+  ClinicSettings,
+  PatientProfile,
+  PendingBookingDraft,
+} from '../types/agenda';
 import { LanternMark } from './LanternMark';
 import { PatientAuthForm } from './PatientAuthForm';
 import { PatientIntakeForm } from './PatientIntakeForm';
@@ -33,6 +38,7 @@ interface BookingCompletionPageProps {
   loadingPatientProfile: boolean;
   pendingDraft: PendingBookingDraft | null;
   sessionDuration: number;
+  clinicSettings: ClinicSettings;
   onClearDraft: () => void;
   onBackToBooking: () => void;
   onOpenPatientPortal: () => void;
@@ -53,6 +59,7 @@ export function BookingCompletionPage({
   loadingPatientProfile,
   pendingDraft,
   sessionDuration,
+  clinicSettings,
   onClearDraft,
   onBackToBooking,
   onOpenPatientPortal,
@@ -177,7 +184,9 @@ export function BookingCompletionPage({
             </div>
             <div>
               <p className="font-mono-tabular text-xs text-[#665B50]">Modalidade</p>
-              <p className="mt-1 text-sm font-medium text-[#2C241E]">100% Online</p>
+              <p className="mt-1 text-sm font-medium text-[#2C241E]">
+                {clinicSettings.modalityLabel}
+              </p>
             </div>
           </div>
 
@@ -191,7 +200,7 @@ export function BookingCompletionPage({
               <span>Ir para Área do Paciente</span>
             </button>
             <a
-              href={buildPatientWhatsAppUrl(confirmedBooking, sessionDuration)}
+              href={buildPatientWhatsAppUrl(confirmedBooking, sessionDuration, clinicSettings)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-lg border border-[#2F5243] bg-[#FFFDF9] px-5 py-2.5 text-sm font-medium text-[#2F5243] hover:bg-[#E9EFEA]/60 transition-colors"
@@ -272,7 +281,8 @@ export function BookingCompletionPage({
               </h2>
               <p className="mt-1 text-sm text-[#52473D]">
                 <span className="font-medium text-[#2C241E]">{pendingDraft.patientName}</span> ·{' '}
-                <span className="font-mono-tabular">{pendingDraft.patientPhone}</span> · Atendimento 100% Online ({sessionDuration} min)
+                <span className="font-mono-tabular">{pendingDraft.patientPhone}</span> · Atendimento{' '}
+                {clinicSettings.modalityLabel} ({sessionDuration} min)
               </p>
             </div>
 
@@ -442,7 +452,7 @@ export function BookingCompletionPage({
                 <p className="flex items-start gap-2 text-xs leading-relaxed text-[#665B50]">
                   <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2F5243]" aria-hidden="true" />
                   <span>
-                    Sigilo clínico garantido: suas informações e seu histórico são acessíveis apenas a você e ao psicólogo Vitor Gomes.
+                    Sigilo clínico garantido: suas informações e seu histórico são acessíveis apenas a você e ao psicólogo {clinicSettings.psychologistName}.
                   </span>
                 </p>
               </form>
