@@ -7,6 +7,7 @@
       "properties": {
         "weeklyDays": { "type": "array", "description": "Dias da semana ativos (0=Dom a 6=Sáb)." },
         "timeSlots": { "type": "array", "description": "Lista padrão de horários HH:MM." },
+        "weeklySchedule": { "type": "object", "description": "Horários HH:MM configurados individualmente por dia da semana (chaves 0 a 6)." },
         "dateOverrides": { "type": "object", "description": "Mapa de horários customizados por data YYYY-MM-DD." },
         "sessionDuration": { "type": "integer", "description": "Duração da sessão em minutos (ex.: 50)." },
         "blockedDates": { "type": "array", "description": "Datas bloqueadas no formato YYYY-MM-DD." },

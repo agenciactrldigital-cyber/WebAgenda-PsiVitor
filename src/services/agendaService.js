@@ -20,10 +20,26 @@ import { handleFirestoreError, OperationType } from '../firebase/errors';
 export const HOLD_DURATION_MS = 30 * 60 * 1000;
 const PENDING_BOOKING_STORAGE_KEY = 'psi_vitor_pending_booking_v1';
 
+const DEFAULT_TIME_SLOTS = ['08:00', '09:00', '10:00', '14:00', '15:00', '16:00', '17:00'];
+
+export function buildDefaultWeeklySchedule(slots = DEFAULT_TIME_SLOTS) {
+  const cleanSlots = [...new Set(slots)].sort();
+  return {
+    '0': [],
+    '1': [...cleanSlots],
+    '2': [...cleanSlots],
+    '3': [...cleanSlots],
+    '4': [...cleanSlots],
+    '5': [...cleanSlots],
+    '6': [],
+  };
+}
+
 /** @type {import('../types/agenda').AvailabilityConfig} */
 export const DEFAULT_AVAILABILITY = {
   weeklyDays: [1, 2, 3, 4, 5],
-  timeSlots: ['08:00', '09:00', '10:00', '14:00', '15:00', '16:00', '17:00'],
+  timeSlots: [...DEFAULT_TIME_SLOTS],
+  weeklySchedule: buildDefaultWeeklySchedule(DEFAULT_TIME_SLOTS),
   dateOverrides: {},
   sessionDuration: 50,
   blockedDates: [],
@@ -132,6 +148,11 @@ export function getSlotsForDate(availability, dateStr) {
   const weeklyDays = Array.isArray(availability.weeklyDays) ? availability.weeklyDays : [];
   if (!weeklyDays.includes(weekday)) return [];
 
+  const weekdaySchedule = availability.weeklySchedule?.[String(weekday)];
+  if (Array.isArray(weekdaySchedule)) {
+    return [...new Set(weekdaySchedule)].sort();
+  }
+
   const slots = Array.isArray(availability.timeSlots) ? availability.timeSlots : [];
   return [...slots].sort();
 }
@@ -164,6 +185,21 @@ export function filterPastSlotsForToday(slots, dateStr) {
   });
 }
 
+function normalizeWeeklySchedule(rawSchedule, fallbackSlots, weeklyDays) {
+  const result = {};
+  for (let day = 0; day <= 6; day += 1) {
+    const key = String(day);
+    if (rawSchedule && Array.isArray(rawSchedule[key])) {
+      result[key] = [...new Set(rawSchedule[key].map((s) => String(s).trim()).filter(Boolean))].sort();
+    } else if (Array.isArray(weeklyDays) && weeklyDays.includes(day)) {
+      result[key] = [...new Set(fallbackSlots)].sort();
+    } else {
+      result[key] = [];
+    }
+  }
+  return result;
+}
+
 export function subscribeAvailability(onData, onError) {
   const ref = doc(db, 'availability', 'default');
   return onSnapshot(
@@ -174,9 +210,18 @@ export function subscribeAvailability(onData, onError) {
         return;
       }
       const data = snapshot.data();
+      const weeklyDays = Array.isArray(data.weeklyDays)
+        ? data.weeklyDays
+        : DEFAULT_AVAILABILITY.weeklyDays;
+      const timeSlots = Array.isArray(data.timeSlots)
+        ? data.timeSlots
+        : DEFAULT_AVAILABILITY.timeSlots;
+      const weeklySchedule = normalizeWeeklySchedule(data.weeklySchedule, timeSlots, weeklyDays);
+
       onData({
-        weeklyDays: Array.isArray(data.weeklyDays) ? data.weeklyDays : DEFAULT_AVAILABILITY.weeklyDays,
-        timeSlots: Array.isArray(data.timeSlots) ? data.timeSlots : DEFAULT_AVAILABILITY.timeSlots,
+        weeklyDays,
+        timeSlots,
+        weeklySchedule,
         dateOverrides:
           data.dateOverrides && typeof data.dateOverrides === 'object' ? data.dateOverrides : {},
         sessionDuration:
@@ -196,9 +241,23 @@ export function subscribeAvailability(onData, onError) {
 
 export async function saveAvailability(availabilityData) {
   const ref = doc(db, 'availability', 'default');
+  const cleanWeeklyDays = [...new Set(availabilityData.weeklyDays)].sort((a, b) => a - b);
+  const fallbackSlots = [...new Set(availabilityData.timeSlots || [])].sort();
+  const normalizedSchedule = normalizeWeeklySchedule(
+    availabilityData.weeklySchedule,
+    fallbackSlots,
+    cleanWeeklyDays
+  );
+
+  const unionSlots = new Set(fallbackSlots);
+  cleanWeeklyDays.forEach((day) => {
+    (normalizedSchedule[String(day)] || []).forEach((slot) => unionSlots.add(slot));
+  });
+
   const payload = {
-    weeklyDays: [...new Set(availabilityData.weeklyDays)].sort((a, b) => a - b),
-    timeSlots: [...new Set(availabilityData.timeSlots)].sort(),
+    weeklyDays: cleanWeeklyDays,
+    timeSlots: [...unionSlots].sort(),
+    weeklySchedule: normalizedSchedule,
     dateOverrides: availabilityData.dateOverrides || {},
     sessionDuration: Number(availabilityData.sessionDuration) || 50,
     blockedDates: [...new Set(availabilityData.blockedDates)].sort(),

@@ -52,14 +52,33 @@ interface AdminDashboardProps {
 type AdminTab = 'appointments' | 'patients' | 'schedule' | 'blocks' | 'groups' | 'deploy';
 
 const WEEKDAYS = [
-  { value: 0, label: 'Dom' },
-  { value: 1, label: 'Seg' },
-  { value: 2, label: 'Ter' },
-  { value: 3, label: 'Qua' },
-  { value: 4, label: 'Qui' },
-  { value: 5, label: 'Sex' },
-  { value: 6, label: 'Sáb' },
+  { value: 0, label: 'Dom', fullName: 'Domingo' },
+  { value: 1, label: 'Seg', fullName: 'Segunda-feira' },
+  { value: 2, label: 'Ter', fullName: 'Terça-feira' },
+  { value: 3, label: 'Qua', fullName: 'Quarta-feira' },
+  { value: 4, label: 'Qui', fullName: 'Quinta-feira' },
+  { value: 5, label: 'Sex', fullName: 'Sexta-feira' },
+  { value: 6, label: 'Sáb', fullName: 'Sábado' },
 ];
+
+function deriveWeeklySchedule(
+  rawSchedule: Record<string, string[]> | undefined,
+  fallbackSlots: string[],
+  activeDays: number[]
+): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (let day = 0; day <= 6; day += 1) {
+    const key = String(day);
+    if (rawSchedule && Array.isArray(rawSchedule[key])) {
+      result[key] = [...new Set(rawSchedule[key])].sort();
+    } else if (activeDays.includes(day)) {
+      result[key] = [...new Set(fallbackSlots)].sort();
+    } else {
+      result[key] = [];
+    }
+  }
+  return result;
+}
 
 const STATUS_META: Record<
   AppointmentStatus,
@@ -126,6 +145,14 @@ export function AdminDashboard({
   // Schedule state synced with availability
   const [weeklyDays, setWeeklyDays] = useState<number[]>(availability.weeklyDays);
   const [timeSlots, setTimeSlots] = useState<string[]>(availability.timeSlots);
+  const [weeklySchedule, setWeeklySchedule] = useState<Record<string, string[]>>(() =>
+    deriveWeeklySchedule(
+      availability.weeklySchedule,
+      availability.timeSlots,
+      availability.weeklyDays
+    )
+  );
+  const [selectedWeekday, setSelectedWeekday] = useState<number>(1);
   const [dateOverrides, setDateOverrides] = useState<Record<string, string[]>>(
     availability.dateOverrides || {}
   );
@@ -157,6 +184,13 @@ export function AdminDashboard({
   useEffect(() => {
     setWeeklyDays(availability.weeklyDays);
     setTimeSlots(availability.timeSlots);
+    setWeeklySchedule(
+      deriveWeeklySchedule(
+        availability.weeklySchedule,
+        availability.timeSlots,
+        availability.weeklyDays
+      )
+    );
     setDateOverrides(availability.dateOverrides || {});
     setSessionDuration(availability.sessionDuration);
     setBlockedDates(availability.blockedDates);
@@ -312,20 +346,58 @@ export function AdminDashboard({
   };
 
   const handleToggleWeekday = (dayVal: number) => {
-    setWeeklyDays((prev) =>
-      prev.includes(dayVal) ? prev.filter((d) => d !== dayVal) : [...prev, dayVal].sort((a, b) => a - b)
-    );
-  };
-
-  const handleAddTimeSlot = () => {
-    if (!/^\d{2}:\d{2}$/.test(newTimeSlot)) return;
-    if (!timeSlots.includes(newTimeSlot)) {
-      setTimeSlots((prev) => [...prev, newTimeSlot].sort());
+    const isCurrentlyActive = weeklyDays.includes(dayVal);
+    if (isCurrentlyActive) {
+      setWeeklyDays((prev) => prev.filter((d) => d !== dayVal));
+    } else {
+      setWeeklyDays((prev) => [...prev, dayVal].sort((a, b) => a - b));
+      const key = String(dayVal);
+      if (!weeklySchedule[key] || weeklySchedule[key].length === 0) {
+        const fallback = timeSlots.length > 0 ? timeSlots : ['09:00', '10:00', '14:00', '15:00'];
+        setWeeklySchedule((prev) => ({
+          ...prev,
+          [key]: [...fallback].sort(),
+        }));
+      }
     }
   };
 
-  const handleRemoveTimeSlot = (slot: string) => {
-    setTimeSlots((prev) => prev.filter((s) => s !== slot));
+  const handleAddTimeSlotForDay = () => {
+    if (!/^\d{2}:\d{2}$/.test(newTimeSlot)) return;
+    const key = String(selectedWeekday);
+    setWeeklySchedule((prev) => {
+      const current = prev[key] || [];
+      if (current.includes(newTimeSlot)) return prev;
+      return {
+        ...prev,
+        [key]: [...current, newTimeSlot].sort(),
+      };
+    });
+    if (!weeklyDays.includes(selectedWeekday)) {
+      setWeeklyDays((prev) => [...prev, selectedWeekday].sort((a, b) => a - b));
+    }
+  };
+
+  const handleRemoveTimeSlotForDay = (slot: string) => {
+    const key = String(selectedWeekday);
+    setWeeklySchedule((prev) => ({
+      ...prev,
+      [key]: (prev[key] || []).filter((s) => s !== slot),
+    }));
+  };
+
+  const handleCopyDayScheduleToActiveDays = () => {
+    const sourceKey = String(selectedWeekday);
+    const sourceSlots = [...(weeklySchedule[sourceKey] || [])].sort();
+    setWeeklySchedule((prev) => {
+      const updated = { ...prev };
+      weeklyDays.forEach((dayVal) => {
+        updated[String(dayVal)] = [...sourceSlots];
+      });
+      return updated;
+    });
+    const sourceLabel = WEEKDAYS.find((w) => w.value === selectedWeekday)?.fullName || 'este dia';
+    showSuccess(`Horários de ${sourceLabel} replicados nos outros dias ativos (clique em Salvar para gravar).`);
   };
 
   const handleAddOverrideSlot = () => {
@@ -367,12 +439,13 @@ export function AdminDashboard({
       await saveAvailability({
         weeklyDays,
         timeSlots,
+        weeklySchedule,
         dateOverrides,
         sessionDuration,
         blockedDates,
         modalities: ['online'],
       });
-      showSuccess('Configurações da agenda online salvas no Firestore.');
+      showSuccess('Grade semanal por dia e duração salvas no Firestore.');
     } catch (err) {
       showError(formatFirestoreError(err));
     } finally {
@@ -391,6 +464,7 @@ export function AdminDashboard({
       await saveAvailability({
         weeklyDays,
         timeSlots,
+        weeklySchedule,
         dateOverrides,
         sessionDuration,
         blockedDates: updated,
@@ -409,6 +483,7 @@ export function AdminDashboard({
       await saveAvailability({
         weeklyDays,
         timeSlots,
+        weeklySchedule,
         dateOverrides,
         sessionDuration,
         blockedDates: updated,
@@ -996,45 +1071,28 @@ export function AdminDashboard({
         )}
 
         {/* TAB 3: FLEXIBLE SCHEDULE */}
-        {activeTab === 'schedule' && (
+        {activeTab === 'schedule' && (() => {
+          const currentWeekdayMeta =
+            WEEKDAYS.find((w) => w.value === selectedWeekday) || WEEKDAYS[1];
+          const isSelectedDayActive = weeklyDays.includes(selectedWeekday);
+          const selectedDaySlots = weeklySchedule[String(selectedWeekday)] || [];
+
+          return (
           <div className="mt-6 space-y-6">
             <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-6 space-y-6">
-              <div>
-                <h2 className="font-display text-xl font-medium text-[#2C241E]">
-                  Grade semanal padrão (100% Online)
-                </h2>
-                <p className="mt-1 text-sm text-[#52473D]">
-                  Defina seus dias recorrentes, duração da sessão e horários disponíveis.
-                </p>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-[#2C241E]">Dias da semana ativos</p>
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                  {WEEKDAYS.map((day) => {
-                    const active = weeklyDays.includes(day.value);
-                    return (
-                      <button
-                        key={day.value}
-                        type="button"
-                        onClick={() => handleToggleWeekday(day.value)}
-                        className={`min-h-[42px] min-w-[54px] rounded-lg border px-3 py-2 text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
-                          active
-                            ? 'border-[#2F5243] bg-[#2F5243] text-[#FFFDF9]'
-                            : 'border-[#D4C8B6] bg-[#FFFDF9] text-[#52473D] hover:bg-[#F6F2EA]'
-                        }`}
-                      >
-                        {day.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <label htmlFor="sessionDurationInput" className="block text-sm font-medium text-[#2C241E]">
-                    Duração da sessão (minutos)
+                  <h2 className="font-display text-xl font-medium text-[#2C241E]">
+                    Planejamento individual por dia da semana (100% Online)
+                  </h2>
+                  <p className="mt-1 text-sm text-[#52473D]">
+                    Selecione um dia da semana abaixo para ativar ou desativar o atendimento e definir os horários específicos daquele dia.
+                  </p>
+                </div>
+
+                <div className="shrink-0">
+                  <label htmlFor="sessionDurationInput" className="block text-xs font-medium text-[#665B50]">
+                    Duração da sessão (min)
                   </label>
                   <input
                     id="sessionDurationInput"
@@ -1044,58 +1102,167 @@ export function AdminDashboard({
                     step={5}
                     value={sessionDuration}
                     onChange={(e) => setSessionDuration(Number(e.target.value) || 50)}
-                    className="mt-1.5 min-h-[42px] w-36 rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 font-mono-tabular text-sm text-[#2C241E]"
+                    className="mt-1 min-h-[42px] w-32 rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 font-mono-tabular text-sm text-[#2C241E]"
                   />
-                </div>
-
-                <div>
-                  <label htmlFor="addStandardSlot" className="block text-sm font-medium text-[#2C241E]">
-                    Adicionar horário padrão
-                  </label>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <input
-                      id="addStandardSlot"
-                      type="time"
-                      value={newTimeSlot}
-                      onChange={(e) => setNewTimeSlot(e.target.value)}
-                      className="min-h-[42px] rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 font-mono-tabular text-sm text-[#2C241E]"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddTimeSlot}
-                      className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-[#2F5243] bg-[#E9EFEA] px-4 py-2 text-xs font-medium text-[#2F5243] hover:bg-[#DCE6DF] cursor-pointer"
-                    >
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                      <span>Adicionar</span>
-                    </button>
-                  </div>
                 </div>
               </div>
 
               <div>
-                <p className="text-sm font-medium text-[#2C241E]">Horários padrão ativos</p>
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                  {timeSlots.length === 0 ? (
-                    <p className="text-sm text-[#665B50]">Nenhum horário padrão cadastrado.</p>
-                  ) : (
-                    timeSlots.map((slot) => (
-                      <div
-                        key={slot}
-                        className="inline-flex items-center gap-2 rounded-lg border border-[#D4C8B6] bg-[#F6F2EA] px-3 py-1.5 font-mono-tabular text-sm text-[#2C241E]"
+                <p className="text-xs font-medium text-[#665B50]">
+                  Escolha o dia da semana para editar seus horários:
+                </p>
+                <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-7">
+                  {WEEKDAYS.map((day) => {
+                    const isActiveDay = weeklyDays.includes(day.value);
+                    const isEditing = selectedWeekday === day.value;
+                    const count = isActiveDay ? (weeklySchedule[String(day.value)] || []).length : 0;
+
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        onClick={() => setSelectedWeekday(day.value)}
+                        className={`flex flex-col items-center justify-center rounded-xl border px-3 py-2.5 text-center transition-colors cursor-pointer ${
+                          isEditing
+                            ? 'border-[#2F5243] bg-[#2F5243] text-[#FFFDF9]'
+                            : isActiveDay
+                            ? 'border-[#C1D5C7] bg-[#E9EFEA]/70 text-[#264738] hover:border-[#2F5243]'
+                            : 'border-[#E2D9CB] bg-[#F6F2EA]/60 text-[#665B50] hover:bg-[#EFE4D2]/60'
+                        }`}
                       >
-                        <span>{slot}</span>
+                        <span className="text-sm font-medium">{day.label}</span>
+                        <span
+                          className={`mt-0.5 font-mono-tabular text-[11px] ${
+                            isEditing
+                              ? 'text-[#E9EFEA]'
+                              : isActiveDay
+                              ? 'text-[#2F5243]'
+                              : 'text-[#8C7F70]'
+                          }`}
+                        >
+                          {isActiveDay ? `${count} hor.` : 'Folga'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Individual Weekday Editor Box */}
+              <div className="rounded-xl border border-[#E2D9CB] bg-[#F6F2EA]/45 p-5 space-y-5">
+                <div className="flex flex-col gap-3 border-b border-[#E2D9CB] pb-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-mono-tabular text-xs text-[#B8732A]">
+                      Editando dia da semana
+                    </p>
+                    <h3 className="font-display text-lg font-medium text-[#2C241E]">
+                      {currentWeekdayMeta.fullName}
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleWeekday(selectedWeekday)}
+                    className={`inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border px-4 py-2 text-xs font-medium transition-colors cursor-pointer ${
+                      isSelectedDayActive
+                        ? 'border-[#2F5243] bg-[#2F5243] text-[#FFFDF9] hover:bg-[#244034]'
+                        : 'border-[#D4C8B6] bg-[#FFFDF9] text-[#2C241E] hover:bg-[#EFE4D2]'
+                    }`}
+                  >
+                    <span>
+                      {isSelectedDayActive
+                        ? `Ativo (${currentWeekdayMeta.label})`
+                        : `Ativar ${currentWeekdayMeta.fullName}`}
+                    </span>
+                  </button>
+                </div>
+
+                {!isSelectedDayActive ? (
+                  <p className="text-sm text-[#665B50]">
+                    {currentWeekdayMeta.fullName} está marcado como folga. Clique no botão acima para ativar atendimentos recorrentes neste dia e configurar os horários.
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                      <div>
+                        <label htmlFor="addDaySlotInput" className="block text-sm font-medium text-[#2C241E]">
+                          Adicionar horário em {currentWeekdayMeta.fullName}
+                        </label>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <input
+                            id="addDaySlotInput"
+                            type="time"
+                            value={newTimeSlot}
+                            onChange={(e) => setNewTimeSlot(e.target.value)}
+                            className="min-h-[42px] rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 font-mono-tabular text-sm text-[#2C241E]"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddTimeSlotForDay}
+                            className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-[#2F5243] bg-[#E9EFEA] px-4 py-2 text-xs font-medium text-[#2F5243] hover:bg-[#DCE6DF] cursor-pointer"
+                          >
+                            <Plus className="h-4 w-4" aria-hidden="true" />
+                            <span>Adicionar</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {weeklyDays.length > 1 && selectedDaySlots.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => handleRemoveTimeSlot(slot)}
-                          aria-label={`Remover horário ${slot}`}
-                          className="text-[#665B50] hover:text-[#7A2727] cursor-pointer"
+                          onClick={handleCopyDayScheduleToActiveDays}
+                          className="min-h-[38px] rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3.5 py-1.5 text-xs font-medium text-[#52473D] hover:bg-[#EFE4D2]/70 cursor-pointer"
                         >
-                          ×
+                          Copiar horários para os outros dias ativos
                         </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-medium text-[#2C241E]">
+                        Horários configurados para {currentWeekdayMeta.fullName}
+                      </p>
+                      <div className="mt-2.5 flex flex-wrap gap-2">
+                        {selectedDaySlots.length === 0 ? (
+                          <p className="text-sm text-[#665B50]">
+                            Nenhum horário definido para {currentWeekdayMeta.fullName}. Adicione horários acima.
+                          </p>
+                        ) : (
+                          selectedDaySlots.map((slot) => (
+                            <div
+                              key={slot}
+                              className="inline-flex items-center gap-2 rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 py-1.5 font-mono-tabular text-sm text-[#2C241E]"
+                            >
+                              <span>{slot}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTimeSlotForDay(slot)}
+                                aria-label={`Remover horário ${slot} de ${currentWeekdayMeta.fullName}`}
+                                className="text-[#665B50] hover:text-[#7A2727] cursor-pointer"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))
+                        )}
                       </div>
-                    ))
-                  )}
-                </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <p className="text-xs text-[#665B50]">
+                  Após ajustar os dias desejados, clique ao lado para salvar no Firestore.
+                </p>
+                <button
+                  type="button"
+                  disabled={savingSchedule}
+                  onClick={handleSaveSchedule}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[#2F5243] px-6 py-2.5 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] disabled:opacity-60 cursor-pointer"
+                >
+                  {savingSchedule ? 'Salvando grade...' : 'Salvar grade semanal'}
+                </button>
               </div>
             </div>
 
@@ -1197,7 +1364,8 @@ export function AdminDashboard({
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* TAB 4: BLOCKED DATES */}
         {activeTab === 'blocks' && (

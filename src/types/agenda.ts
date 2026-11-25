@@ -10,6 +10,7 @@ export type AppointmentModality = 'online';
 export interface AvailabilityConfig {
   weeklyDays: number[];
   timeSlots: string[];
+  weeklySchedule?: Record<string, string[]>;
   dateOverrides: Record<string, string[]>;
   sessionDuration: number;
   blockedDates: string[];

@@ -37,7 +37,7 @@ service cloud.firestore {
 
     function isValidAvailability(data) {
       return data.keys().hasAll(['weeklyDays', 'timeSlots', 'sessionDuration', 'blockedDates', 'modalities', 'updatedAt'])
-        && data.keys().hasOnly(['weeklyDays', 'timeSlots', 'dateOverrides', 'sessionDuration', 'blockedDates', 'modalities', 'updatedAt'])
+        && data.keys().hasOnly(['weeklyDays', 'timeSlots', 'weeklySchedule', 'dateOverrides', 'sessionDuration', 'blockedDates', 'modalities', 'updatedAt'])
         && data.weeklyDays is list
         && data.weeklyDays.size() <= 7
         && data.timeSlots is list
@@ -50,6 +50,7 @@ service cloud.firestore {
         && data.modalities is list
         && data.modalities.size() == 1
         && data.modalities.hasOnly(['online'])
+        && (!('weeklySchedule' in data) || (data.weeklySchedule is map && data.weeklySchedule.size() <= 7))
         && (!('dateOverrides' in data) || data.dateOverrides is map)
         && data.updatedAt == request.time;
     }
