@@ -4,6 +4,7 @@
 - `appointments` contains patient PII (`patientName`, `patientContact`, `notes`) and MUST NEVER be readable (`get` or `list`) by unauthenticated visitors or unauthorized users.
 - Public `create` on `appointments` MUST force `status == "pending"`, `modality == "online"`, `createdAt == request.time`, and reject shadow fields via `keys().hasOnly(...)`.
 - `occupiedSlots` stores ONLY `{ date, timeSlot, createdAt }` (zero PII) so the public booking calendar can hide reserved slots without reading `appointments`.
+- `slotHolds` stores ONLY `{ date, timeSlot, holdToken, ownerUid, createdAt, expiresAt }` (zero PII) with `expiresAt` strictly bounded to `<= request.time + 31m`, and active holds cannot be overwritten by other visitors until expired.
 - `availability` and `groups` allow public reads and restrict all writes to verified authorized psychologists (`isPsychologist()`).
 
 ## 2. Adversarial Payloads ("Dirty Dozen")
@@ -17,5 +18,5 @@
 8. Unverified email matching psychologist email (`email_verified: false`): MUST return `PERMISSION_DENIED`.
 9. Authenticated non-psychologist email (`random@gmail.com`): MUST return `PERMISSION_DENIED`.
 10. Unauthenticated `create` on `/occupiedSlots` with extra PII field `patientName`: MUST return `PERMISSION_DENIED`.
-11. Unauthenticated `write` on `/availability/default` or `/groups/{id}`: MUST return `PERMISSION_DENIED`.
+11. `slotHolds` write with `expiresAt > request.time + 31m` or overwriting non-expired hold: MUST return `PERMISSION_DENIED`.
 12. Path ID poisoning (`docId` > 128 chars or invalid characters): MUST return `PERMISSION_DENIED`.

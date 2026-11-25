@@ -3,17 +3,22 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where,
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
+
+export const HOLD_DURATION_MS = 30 * 60 * 1000;
+const PENDING_BOOKING_STORAGE_KEY = 'psi_vitor_pending_booking_v1';
 
 /** @type {import('../types/agenda').AvailabilityConfig} */
 export const DEFAULT_AVAILABILITY = {
@@ -227,6 +232,166 @@ export function subscribeOccupiedSlots(onData, onError) {
       if (onError) onError(formatFirestoreError(error));
     }
   );
+}
+
+// --- 30-MINUTE TEMPORARY HOLD & DRAFT PERSISTENCE ---
+
+function generateHoldToken() {
+  const randomPart = Math.random().toString(36).slice(2, 12);
+  const timePart = Date.now().toString(36);
+  return `hold_${timePart}_${randomPart}`.slice(0, 48);
+}
+
+/**
+ * @returns {import('../types/agenda').PendingBookingDraft | null}
+ */
+export function loadPendingBookingDraft() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(PENDING_BOOKING_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.date || !parsed.timeSlot || !parsed.expiresAtMs) {
+      window.localStorage.removeItem(PENDING_BOOKING_STORAGE_KEY);
+      return null;
+    }
+    if (Number(parsed.expiresAtMs) <= Date.now()) {
+      window.localStorage.removeItem(PENDING_BOOKING_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {import('../types/agenda').PendingBookingDraft} draft
+ */
+export function savePendingBookingDraft(draft) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PENDING_BOOKING_STORAGE_KEY, JSON.stringify(draft));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function clearPendingBookingDraft() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(PENDING_BOOKING_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function subscribeSlotHolds(onData, onError) {
+  const ref = collection(db, 'slotHolds');
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      /** @type {import('../types/agenda').SlotHoldRecord[]} */
+      const holds = [];
+      snapshot.forEach((docSnap) => {
+        const d = docSnap.data();
+        const expiresAtMs =
+          d?.expiresAt && typeof d.expiresAt.toMillis === 'function'
+            ? d.expiresAt.toMillis()
+            : Number(d?.expiresAtMs || 0);
+        if (d?.date && d?.timeSlot && expiresAtMs > 0) {
+          holds.push({
+            id: docSnap.id,
+            date: d.date,
+            timeSlot: d.timeSlot,
+            holdToken: d.holdToken || '',
+            ownerUid: d.ownerUid || '',
+            expiresAtMs,
+          });
+        }
+      });
+      onData(holds);
+    },
+    (error) => {
+      if (onError) onError(formatFirestoreError(error));
+    }
+  );
+}
+
+/**
+ * @param {{ date: string; timeSlot: string; ownerUid?: string; existingHoldToken?: string; existingExpiresAtMs?: number }} params
+ */
+export async function createTemporarySlotHold({
+  date,
+  timeSlot,
+  ownerUid = '',
+  existingHoldToken = '',
+  existingExpiresAtMs = 0,
+}) {
+  const slotId = toOccupiedSlotDocId(date, timeSlot);
+  const occupiedRef = doc(db, 'occupiedSlots', slotId);
+  const holdRef = doc(db, 'slotHolds', slotId);
+
+  const occupiedSnap = await getDoc(occupiedRef);
+  if (occupiedSnap.exists()) {
+    throw new Error('Este horário acabou de ser ocupado. Escolha outro horário livre.');
+  }
+
+  const existingHoldSnap = await getDoc(holdRef);
+  const now = Date.now();
+
+  if (existingHoldSnap.exists()) {
+    const data = existingHoldSnap.data();
+    const currentExpiresMs =
+      data?.expiresAt && typeof data.expiresAt.toMillis === 'function'
+        ? data.expiresAt.toMillis()
+        : 0;
+
+    if (currentExpiresMs > now) {
+      if (existingHoldToken && data.holdToken === existingHoldToken) {
+        return {
+          holdToken: existingHoldToken,
+          createdAtMs: now,
+          expiresAtMs: existingExpiresAtMs > now ? existingExpiresAtMs : currentExpiresMs,
+        };
+      }
+      throw new Error(
+        'Este horário está temporariamente reservado por outro paciente no momento. Escolha outro horário disponível.'
+      );
+    }
+  }
+
+  const holdToken = generateHoldToken();
+  const expiresAtMs = now + HOLD_DURATION_MS;
+
+  try {
+    await setDoc(holdRef, {
+      date,
+      timeSlot,
+      holdToken,
+      ownerUid: ownerUid || '',
+      createdAt: serverTimestamp(),
+      expiresAt: Timestamp.fromMillis(expiresAtMs),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `slotHolds/${slotId}`);
+  }
+
+  return {
+    holdToken,
+    createdAtMs: now,
+    expiresAtMs,
+  };
+}
+
+export async function releaseTemporarySlotHold(date, timeSlot) {
+  if (!date || !timeSlot) return;
+  const slotId = toOccupiedSlotDocId(date, timeSlot);
+  try {
+    await deleteDoc(doc(db, 'slotHolds', slotId));
+  } catch {
+    // Unauthenticated holds expire automatically after 30 minutes
+  }
 }
 
 // --- PATIENT PROFILE & HISTORY ---
@@ -456,6 +621,7 @@ export async function createAppointmentRequest({
   const appointmentRef = doc(collection(db, 'appointments'));
   const slotId = toOccupiedSlotDocId(date, timeSlot);
   const slotRef = doc(db, 'occupiedSlots', slotId);
+  const holdRef = doc(db, 'slotHolds', slotId);
 
   batch.set(appointmentRef, {
     date,
@@ -475,6 +641,8 @@ export async function createAppointmentRequest({
     timeSlot,
     createdAt: serverTimestamp(),
   });
+
+  batch.delete(holdRef);
 
   try {
     await batch.commit();

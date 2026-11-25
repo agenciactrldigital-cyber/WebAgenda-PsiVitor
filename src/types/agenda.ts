@@ -67,3 +67,22 @@ export interface GroupItem {
   active: boolean;
   isFallback?: boolean;
 }
+
+export interface PendingBookingDraft {
+  date: string;
+  timeSlot: string;
+  patientName: string;
+  patientPhone: string;
+  holdToken: string;
+  createdAtMs: number;
+  expiresAtMs: number;
+}
+
+export interface SlotHoldRecord {
+  id: string;
+  date: string;
+  timeSlot: string;
+  holdToken: string;
+  ownerUid: string;
+  expiresAtMs: number;
+}

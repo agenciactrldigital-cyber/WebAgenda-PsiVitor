@@ -135,6 +135,27 @@ service cloud.firestore {
         && data.createdAt == request.time;
     }
 
+    function isValidSlotHold(data) {
+      return data.keys().hasAll(['date', 'timeSlot', 'holdToken', 'ownerUid', 'createdAt', 'expiresAt'])
+        && data.keys().hasOnly(['date', 'timeSlot', 'holdToken', 'ownerUid', 'createdAt', 'expiresAt'])
+        && data.date is string
+        && data.date.size() == 10
+        && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.timeSlot is string
+        && data.timeSlot.size() == 5
+        && data.timeSlot.matches('^\\d{2}:\\d{2}$')
+        && data.holdToken is string
+        && data.holdToken.size() >= 12
+        && data.holdToken.size() <= 64
+        && data.ownerUid is string
+        && data.ownerUid.size() <= 128
+        && ((!isSignedIn() && data.ownerUid == '') || (isSignedIn() && data.ownerUid == request.auth.uid))
+        && data.createdAt == request.time
+        && data.expiresAt is timestamp
+        && data.expiresAt > request.time
+        && data.expiresAt <= request.time + duration.value(31, 'm');
+    }
+
     function isValidAppointmentCreate(data) {
       return data.keys().hasAll(['date', 'timeSlot', 'modality', 'patientUid', 'patientName', 'patientContact', 'status', 'createdAt', 'updatedAt'])
         && data.keys().hasOnly(['date', 'timeSlot', 'modality', 'patientUid', 'patientName', 'patientContact', 'notes', 'status', 'createdAt', 'updatedAt'])
@@ -159,7 +180,7 @@ service cloud.firestore {
     }
 
     function isValidAppointmentUpdate(data) {
-      return data.keys().hasAll(['date', 'timeSlot', 'modality', 'patientUid', 'patientName', 'patientContact', 'status', 'createdAt', 'updatedAt'])
+      return data.keys().hasAll(['date', 'timeSlot', 'modality', 'patientName', 'patientContact', 'status', 'createdAt', 'updatedAt'])
         && data.keys().hasOnly(['date', 'timeSlot', 'modality', 'patientUid', 'patientName', 'patientContact', 'notes', 'meetingLink', 'status', 'createdAt', 'updatedAt'])
         && data.date is string
         && data.date.size() == 10
@@ -168,7 +189,7 @@ service cloud.firestore {
         && data.timeSlot.size() == 5
         && data.timeSlot.matches('^\\d{2}:\\d{2}$')
         && data.modality == 'online'
-        && data.patientUid == existing().patientUid
+        && (!('patientUid' in data) || (data.patientUid is string && data.patientUid.size() <= 128))
         && data.patientName is string
         && data.patientName.size() >= 2
         && data.patientName.size() <= 120
@@ -178,7 +199,6 @@ service cloud.firestore {
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
         && (!('meetingLink' in data) || (data.meetingLink is string && data.meetingLink.size() <= 500))
         && data.status in ['pending', 'confirmed', 'completed', 'cancelled', 'rescheduled']
-        && data.createdAt == existing().createdAt
         && data.updatedAt == request.time;
     }
 
@@ -208,16 +228,27 @@ service cloud.firestore {
       allow get: if isValidId(slotId);
       allow list: if true;
       allow create: if isValidId(slotId) && isSignedIn() && isValidOccupiedSlot(incoming());
-      allow update, delete: if isValidId(slotId) && isPsychologist();
+      allow update: if isValidId(slotId) && isPsychologist() && isValidOccupiedSlot(incoming());
+      allow delete: if isValidId(slotId) && isPsychologist();
+    }
+
+    match /slotHolds/{slotId} {
+      allow get: if isValidId(slotId);
+      allow list: if true;
+      allow create: if isValidId(slotId) && isValidSlotHold(incoming());
+      allow update: if isValidId(slotId) && isValidSlotHold(incoming()) && (existing().expiresAt <= request.time || (isSignedIn() && existing().ownerUid == request.auth.uid));
+      allow delete: if isValidId(slotId) && (isPsychologist() || existing().expiresAt <= request.time || (isSignedIn() && (existing().ownerUid == request.auth.uid || existsAfter(/databases/$(database)/documents/occupiedSlots/$(slotId)))));
     }
 
     match /appointments/{appointmentId} {
-      allow get: if isValidId(appointmentId) && (isPsychologist() || (isSignedIn() && existing().patientUid == request.auth.uid));
-      allow list: if isPsychologist() || (isSignedIn() && resource.data.patientUid == request.auth.uid);
+      allow get: if isValidId(appointmentId) && (isPsychologist() || (isSignedIn() && 'patientUid' in existing() && existing().patientUid == request.auth.uid));
+      allow list: if isPsychologist() || (isSignedIn() && 'patientUid' in resource.data && resource.data.patientUid == request.auth.uid);
       allow create: if isValidId(appointmentId) && isSignedIn() && isValidAppointmentCreate(incoming());
       allow update: if isValidId(appointmentId)
         && isPsychologist()
         && isValidAppointmentUpdate(incoming())
+        && (!('patientUid' in existing()) || ('patientUid' in incoming() && incoming().patientUid == existing().patientUid))
+        && incoming().createdAt == existing().createdAt
         && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'meetingLink', 'updatedAt']);
       allow delete: if isValidId(appointmentId) && isPsychologist();
     }

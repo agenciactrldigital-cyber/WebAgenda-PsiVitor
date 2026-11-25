@@ -11,6 +11,7 @@ interface PatientAuthFormProps {
   title?: string;
   subtitle?: string;
   compact?: boolean;
+  initialFullName?: string;
   onSuccess?: () => void;
 }
 
@@ -18,10 +19,11 @@ export function PatientAuthForm({
   title = 'Acesse ou crie sua conta',
   subtitle = 'Entre com Google ou E-mail e senha para salvar seu cadastro clínico e acompanhar suas sessões.',
   compact = false,
+  initialFullName = '',
   onSuccess,
 }: PatientAuthFormProps) {
   const [mode, setMode] = useState<'register' | 'login'>('register');
-  const [fullName, setFullName] = useState('');
+  const [fullName, setFullName] = useState(initialFullName);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);

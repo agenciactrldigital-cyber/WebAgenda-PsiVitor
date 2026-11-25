@@ -7,6 +7,8 @@ import type { PatientProfile } from '../types/agenda';
 interface PatientIntakeFormProps {
   user: User;
   existingProfile: PatientProfile | null;
+  initialFullName?: string;
+  initialPhone?: string;
   submitLabel?: string;
   onSaved?: (savedSummary: { fullName: string; phone: string }) => void | Promise<void>;
 }
@@ -14,13 +16,15 @@ interface PatientIntakeFormProps {
 export function PatientIntakeForm({
   user,
   existingProfile,
+  initialFullName = '',
+  initialPhone = '',
   submitLabel = 'Salvar ficha clínica',
   onSaved,
 }: PatientIntakeFormProps) {
   const [fullName, setFullName] = useState(
-    existingProfile?.fullName || user.displayName || ''
+    existingProfile?.fullName || initialFullName || user.displayName || ''
   );
-  const [phone, setPhone] = useState(existingProfile?.phone || '');
+  const [phone, setPhone] = useState(existingProfile?.phone || initialPhone || '');
   const [birthDate, setBirthDate] = useState(existingProfile?.birthDate || '');
   const [cityState, setCityState] = useState(existingProfile?.cityState || '');
   const [occupation, setOccupation] = useState(existingProfile?.occupation || '');
