@@ -8,11 +8,14 @@ import {
   Clock,
   Copy,
   Database,
+  FileText,
   LogOut,
   MessageCircle,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
+  Video,
   XCircle,
 } from 'lucide-react';
 import {
@@ -24,11 +27,20 @@ import {
   saveAvailability,
   saveGroup,
   seedInitialFirestoreData,
+  subscribeAllPatients,
   subscribeAppointments,
+  updateAppointmentMeetingLink,
   updateAppointmentStatus,
 } from '../services/agendaService';
 import { logoutPsychologist } from '../services/authService';
-import type { AppointmentRecord, AppointmentStatus, AvailabilityConfig, GroupItem } from '../types/agenda';
+import type {
+  AppointmentRecord,
+  AppointmentStatus,
+  AvailabilityConfig,
+  GroupItem,
+  PatientProfile,
+} from '../types/agenda';
+import { PatientRecordDrawer } from './PatientRecordDrawer';
 
 interface AdminDashboardProps {
   user: User;
@@ -37,7 +49,7 @@ interface AdminDashboardProps {
   onBackToPublic: () => void;
 }
 
-type AdminTab = 'appointments' | 'schedule' | 'blocks' | 'groups' | 'deploy';
+type AdminTab = 'appointments' | 'patients' | 'schedule' | 'blocks' | 'groups' | 'deploy';
 
 const WEEKDAYS = [
   { value: 0, label: 'Dom' },
@@ -68,6 +80,11 @@ const STATUS_META: Record<
     className: 'border-[#D1CEC7] bg-[#EFECE5] text-[#473E35]',
     icon: Check,
   },
+  rescheduled: {
+    label: 'Reagendada',
+    className: 'border-[#CBD5E1] bg-[#F1F5F9] text-[#334155]',
+    icon: RefreshCw,
+  },
   cancelled: {
     label: 'Cancelada',
     className: 'border-[#E5BABA] bg-[#FDF2F2] text-[#7A2727]',
@@ -75,31 +92,8 @@ const STATUS_META: Record<
   },
 };
 
-const FIRESTORE_RULES_SNIPPET = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-    function isSignedIn() { return request.auth != null; }
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\\\-]+$');
-    }
-    function isPsychologist() {
-      return isSignedIn()
-        && request.auth.token.email_verified == true
-        && request.auth.token.email in [
-          "agenciactrldigital@gmail.com",
-          "psi.josevitorgf@gmail.com",
-          "psi.vitorgomes@gmail.com"
-        ];
-    }
-    // ... regras completas em firestore.rules na raiz do projeto
-  }
-}`;
+const FIRESTORE_RULES_SNIPPET = `// Regras completas e atualizadas em firestore.rules na raiz do projeto
+// Coleções protegidas: availability, groups, patients, occupiedSlots, appointments`;
 
 export function AdminDashboard({
   user,
@@ -112,10 +106,22 @@ export function AdminDashboard({
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [appointmentsError, setAppointmentsError] = useState<string | null>(null);
 
+  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [loadingPatients, setLoadingPatients] = useState(true);
+  const [patientSearch, setPatientSearch] = useState('');
+
+  const [drawerContext, setDrawerContext] = useState<{
+    patient: PatientProfile | null;
+    fallbackName?: string;
+    fallbackContact?: string;
+    appointments: AppointmentRecord[];
+  } | null>(null);
+
   const [statusFilter, setStatusFilter] = useState<'all' | AppointmentStatus>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+  const [meetingLinkDrafts, setMeetingLinkDrafts] = useState<Record<string, string>>({});
 
   // Schedule state synced with availability
   const [weeklyDays, setWeeklyDays] = useState<number[]>(availability.weeklyDays);
@@ -157,7 +163,7 @@ export function AdminDashboard({
   }, [availability]);
 
   useEffect(() => {
-    const unsubscribe = subscribeAppointments(
+    const unsubAppointments = subscribeAppointments(
       (list: AppointmentRecord[]) => {
         setAppointments(list);
         setLoadingAppointments(false);
@@ -168,7 +174,21 @@ export function AdminDashboard({
         setLoadingAppointments(false);
       }
     );
-    return () => unsubscribe();
+
+    const unsubPatients = subscribeAllPatients(
+      (list: PatientProfile[]) => {
+        setPatients(list);
+        setLoadingPatients(false);
+      },
+      () => {
+        setLoadingPatients(false);
+      }
+    );
+
+    return () => {
+      unsubAppointments();
+      unsubPatients();
+    };
   }, []);
 
   const showSuccess = (msg: string) => {
@@ -181,6 +201,12 @@ export function AdminDashboard({
     setFeedbackMessage(null);
     setFeedbackError(msg);
   };
+
+  const patientsByUid = useMemo(() => {
+    const map = new Map<string, PatientProfile>();
+    patients.forEach((p) => map.set(p.uid, p));
+    return map;
+  }, [patients]);
 
   const filteredAppointments = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -195,6 +221,17 @@ export function AdminDashboard({
     });
   }, [appointments, statusFilter, searchTerm]);
 
+  const filteredPatients = useMemo(() => {
+    const q = patientSearch.trim().toLowerCase();
+    if (!q) return patients;
+    return patients.filter(
+      (p) =>
+        p.fullName.toLowerCase().includes(q) ||
+        p.email.toLowerCase().includes(q) ||
+        p.phone.toLowerCase().includes(q)
+    );
+  }, [patients, patientSearch]);
+
   const counts = useMemo(() => {
     return appointments.reduce(
       (acc, item) => {
@@ -202,15 +239,58 @@ export function AdminDashboard({
         acc[item.status] = (acc[item.status] || 0) + 1;
         return acc;
       },
-      { total: 0, pending: 0, confirmed: 0, completed: 0, cancelled: 0 }
+      { total: 0, pending: 0, confirmed: 0, completed: 0, rescheduled: 0, cancelled: 0 }
     );
   }, [appointments]);
+
+  const openPatientDrawerFromAppointment = (appointment: AppointmentRecord) => {
+    const matchedPatient = appointment.patientUid
+      ? patientsByUid.get(appointment.patientUid) || null
+      : null;
+
+    const relatedAppointments = appointments.filter((a) =>
+      appointment.patientUid
+        ? a.patientUid === appointment.patientUid
+        : a.patientContact === appointment.patientContact
+    );
+
+    setDrawerContext({
+      patient: matchedPatient,
+      fallbackName: appointment.patientName,
+      fallbackContact: appointment.patientContact,
+      appointments: relatedAppointments,
+    });
+  };
+
+  const openPatientDrawerFromProfile = (patient: PatientProfile) => {
+    const relatedAppointments = appointments.filter((a) => a.patientUid === patient.uid);
+    setDrawerContext({
+      patient,
+      appointments: relatedAppointments,
+    });
+  };
 
   const handleStatusChange = async (appointment: AppointmentRecord, nextStatus: AppointmentStatus) => {
     setActionBusyId(appointment.id);
     try {
-      await updateAppointmentStatus(appointment, nextStatus);
-      showSuccess(`Solicitação de ${appointment.patientName} atualizada para ${STATUS_META[nextStatus].label}.`);
+      const draftLink = meetingLinkDrafts[appointment.id];
+      await updateAppointmentStatus(appointment, nextStatus, draftLink);
+      showSuccess(
+        `Solicitação de ${appointment.patientName} atualizada para ${STATUS_META[nextStatus].label}.`
+      );
+    } catch (err) {
+      showError(formatFirestoreError(err));
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const handleSaveMeetingLink = async (appointment: AppointmentRecord) => {
+    const link = meetingLinkDrafts[appointment.id] ?? appointment.meetingLink ?? '';
+    setActionBusyId(appointment.id);
+    try {
+      await updateAppointmentMeetingLink(appointment.id, link);
+      showSuccess(`Link da sala salvo para ${appointment.patientName}.`);
     } catch (err) {
       showError(formatFirestoreError(err));
     } finally {
@@ -474,7 +554,7 @@ export function AdminDashboard({
                   Banco de dados pronto para inicialização
                 </p>
                 <p className="text-xs text-[#52473D]">
-                  O documento <span className="font-mono-tabular">availability/default</span> ainda não foi gravado no seu Firestore. Clique ao lado para salvar a grade inicial e o grupo online.
+                  O documento <span className="font-mono-tabular">availability/default</span> ainda não foi gravado no Firestore. Clique ao lado para salvar a grade inicial e o grupo online.
                 </p>
               </div>
             </div>
@@ -512,6 +592,7 @@ export function AdminDashboard({
         >
           {[
             { id: 'appointments', label: `Solicitações (${counts.pending})` },
+            { id: 'patients', label: `Pacientes (${patients.length})` },
             { id: 'schedule', label: 'Grade Flexível' },
             { id: 'blocks', label: `Bloqueios (${blockedDates.length})` },
             { id: 'groups', label: 'Grupo Online' },
@@ -540,12 +621,13 @@ export function AdminDashboard({
         {/* TAB 1: APPOINTMENTS */}
         {activeTab === 'appointments' && (
           <div className="mt-6 space-y-6">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
               {[
                 { label: 'Total', value: counts.total },
                 { label: 'Pendentes', value: counts.pending },
                 { label: 'Confirmadas', value: counts.confirmed },
                 { label: 'Concluídas', value: counts.completed },
+                { label: 'Reagendadas', value: counts.rescheduled },
               ].map((stat) => (
                 <div
                   key={stat.label}
@@ -566,6 +648,7 @@ export function AdminDashboard({
                   { id: 'pending', label: 'Pendentes' },
                   { id: 'confirmed', label: 'Confirmadas' },
                   { id: 'completed', label: 'Concluídas' },
+                  { id: 'rescheduled', label: 'Reagendadas' },
                   { id: 'cancelled', label: 'Canceladas' },
                 ].map((f) => (
                   <button
@@ -619,7 +702,7 @@ export function AdminDashboard({
                   Nenhuma solicitação encontrada
                 </p>
                 <p className="mt-1 text-sm text-[#665B50]">
-                  Quando pacientes enviarem pedidos de sessão online pelo site, eles aparecerão aqui em tempo real.
+                  Quando pacientes enviarem pedidos de sessão online, eles aparecerão aqui em tempo real.
                 </p>
               </div>
             ) : (
@@ -628,11 +711,15 @@ export function AdminDashboard({
                   const meta = STATUS_META[appointment.status] || STATUS_META.pending;
                   const StatusIcon = meta.icon;
                   const isBusy = actionBusyId === appointment.id;
+                  const linkValue =
+                    meetingLinkDrafts[appointment.id] !== undefined
+                      ? meetingLinkDrafts[appointment.id]
+                      : appointment.meetingLink || '';
 
                   return (
                     <div
                       key={appointment.id}
-                      className="rounded-xl border border-[#E2D9CB] bg-[#FFFDF9] p-5"
+                      className="rounded-xl border border-[#E2D9CB] bg-[#FFFDF9] p-5 space-y-4"
                     >
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="space-y-2">
@@ -668,8 +755,20 @@ export function AdminDashboard({
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openPatientDrawerFromAppointment(appointment)}
+                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-[#D4C8B6] bg-[#F6F2EA] px-3 py-1.5 text-xs font-medium text-[#2C241E] hover:bg-[#EFE4D2] transition-colors whitespace-nowrap cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                            <span>Ver ficha do paciente</span>
+                          </button>
+
                           <a
-                            href={buildPsychologistWhatsAppConfirmUrl(appointment, sessionDuration)}
+                            href={buildPsychologistWhatsAppConfirmUrl(
+                              { ...appointment, meetingLink: linkValue },
+                              sessionDuration
+                            )}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-[#2F5243] bg-[#E9EFEA] px-3 py-1.5 text-xs font-medium text-[#2F5243] hover:bg-[#DCE6DF] transition-colors whitespace-nowrap"
@@ -697,6 +796,17 @@ export function AdminDashboard({
                               className="inline-flex min-h-[38px] items-center rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 py-1.5 text-xs font-medium text-[#2C241E] hover:bg-[#F6F2EA] disabled:opacity-60 whitespace-nowrap cursor-pointer"
                             >
                               Concluir
+                            </button>
+                          )}
+
+                          {appointment.status !== 'rescheduled' && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => handleStatusChange(appointment, 'rescheduled')}
+                              className="inline-flex min-h-[38px] items-center rounded-lg border border-[#CBD5E1] bg-[#FFFDF9] px-3 py-1.5 text-xs font-medium text-[#334155] hover:bg-[#F1F5F9] disabled:opacity-60 whitespace-nowrap cursor-pointer"
+                            >
+                              Reagendar
                             </button>
                           )}
 
@@ -741,6 +851,39 @@ export function AdminDashboard({
                           )}
                         </div>
                       </div>
+
+                      {/* Virtual Room Link Bar */}
+                      <div className="flex flex-col gap-2 border-t border-[#E2D9CB]/80 pt-3 sm:flex-row sm:items-center">
+                        <label
+                          htmlFor={`link-${appointment.id}`}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-[#52473D] shrink-0"
+                        >
+                          <Video className="h-3.5 w-3.5 text-[#2F5243]" aria-hidden="true" />
+                          <span>Link da sala virtual:</span>
+                        </label>
+                        <input
+                          id={`link-${appointment.id}`}
+                          type="url"
+                          maxLength={500}
+                          value={linkValue}
+                          onChange={(e) =>
+                            setMeetingLinkDrafts((prev) => ({
+                              ...prev,
+                              [appointment.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="https://meet.google.com/..."
+                          className="min-h-[36px] flex-1 rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-xs text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => handleSaveMeetingLink(appointment)}
+                          className="min-h-[36px] rounded-lg border border-[#D4C8B6] bg-[#F6F2EA] px-3.5 py-1.5 text-xs font-medium text-[#2C241E] hover:bg-[#EFE4D2] disabled:opacity-60 whitespace-nowrap cursor-pointer"
+                        >
+                          Salvar link
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -749,7 +892,110 @@ export function AdminDashboard({
           </div>
         )}
 
-        {/* TAB 2: FLEXIBLE SCHEDULE */}
+        {/* TAB 2: PATIENTS REGISTRY */}
+        {activeTab === 'patients' && (
+          <div className="mt-6 space-y-5">
+            <div className="flex flex-col gap-3 rounded-xl border border-[#E2D9CB] bg-[#FFFDF9] p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-display text-xl font-medium text-[#2C241E]">
+                  Pacientes cadastrados
+                </h2>
+                <p className="text-xs sm:text-sm text-[#52473D]">
+                  Consulte fichas clínicas completas e o histórico individual de sessões por paciente.
+                </p>
+              </div>
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[#665B50]" />
+                <input
+                  type="search"
+                  value={patientSearch}
+                  onChange={(e) => setPatientSearch(e.target.value)}
+                  placeholder="Buscar por nome, WhatsApp ou e-mail"
+                  className="min-h-[38px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] pl-9 pr-3 text-xs sm:text-sm text-[#2C241E] focus:border-[#2F5243] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {loadingPatients ? (
+              <div className="space-y-3">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-20 rounded-xl bg-[#FFFDF9] animate-pulse" />
+                ))}
+              </div>
+            ) : filteredPatients.length === 0 ? (
+              <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-8 text-center">
+                <p className="font-display text-lg text-[#2C241E]">
+                  Nenhum paciente cadastrado ainda
+                </p>
+                <p className="mt-1 text-sm text-[#665B50]">
+                  Assim que os pacientes criarem sua conta e preencherem a ficha complementar, aparecerão aqui.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {filteredPatients.map((patient) => {
+                  const patientSessions = appointments.filter((a) => a.patientUid === patient.uid);
+                  const completedCount = patientSessions.filter((a) => a.status === 'completed').length;
+                  const confirmedCount = patientSessions.filter((a) => a.status === 'confirmed').length;
+                  const rescheduledCount = patientSessions.filter((a) => a.status === 'rescheduled').length;
+                  const cancelledCount = patientSessions.filter((a) => a.status === 'cancelled').length;
+
+                  return (
+                    <div
+                      key={patient.uid}
+                      className="flex flex-col justify-between rounded-xl border border-[#E2D9CB] bg-[#FFFDF9] p-5"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-display text-lg font-medium text-[#2C241E]">
+                              {patient.fullName}
+                            </h3>
+                            <p className="font-mono-tabular text-xs text-[#665B50]">
+                              {patient.phone} · {patient.email}
+                            </p>
+                          </div>
+                          {patient.isMinor && (
+                            <span className="font-mono-tabular text-xs text-[#B8732A]">
+                              Menor (18-)
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="mt-3 line-clamp-2 text-xs sm:text-sm text-[#52473D]">
+                          {patient.reasonForTherapy}
+                        </p>
+
+                        <div className="mt-4 flex flex-wrap gap-3 border-t border-[#E2D9CB]/80 pt-3 font-mono-tabular text-xs text-[#52473D]">
+                          <span>Concluídas: {completedCount}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>Confirmadas: {confirmedCount}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>Reagendadas: {rescheduledCount}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>Canceladas: {cancelledCount}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => openPatientDrawerFromProfile(patient)}
+                          className="inline-flex min-h-[40px] w-full items-center justify-center gap-2 rounded-lg border border-[#2F5243] bg-[#E9EFEA] px-4 py-2 text-xs font-medium text-[#2F5243] hover:bg-[#DCE6DF] transition-colors cursor-pointer"
+                        >
+                          <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>Abrir ficha clínica e histórico</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: FLEXIBLE SCHEDULE */}
         {activeTab === 'schedule' && (
           <div className="mt-6 space-y-6">
             <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-6 space-y-6">
@@ -853,14 +1099,13 @@ export function AdminDashboard({
               </div>
             </div>
 
-            {/* Flexible per-date overrides */}
             <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-6 space-y-5">
               <div>
                 <h3 className="font-display text-lg font-medium text-[#2C241E]">
                   Horários flexíveis por data específica
                 </h3>
                 <p className="mt-1 text-sm text-[#52473D]">
-                  Personalize horários para um dia específico (inclusive abrindo um sábado ou ajustando a grade de um único dia sem alterar toda a semana).
+                  Personalize horários para um dia específico (inclusive abrindo um sábado ou ajustando a grade de um único dia).
                 </p>
               </div>
 
@@ -903,7 +1148,10 @@ export function AdminDashboard({
               {overrideKeys.length > 0 && (
                 <div className="divide-y divide-[#E2D9CB] rounded-xl border border-[#E2D9CB] bg-[#F6F2EA]/50 px-4">
                   {overrideKeys.map((dateKey) => (
-                    <div key={dateKey} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div
+                      key={dateKey}
+                      className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono-tabular text-sm font-medium text-[#2C241E]">
                           {formatShortDatePtBr(dateKey)}:
@@ -951,7 +1199,7 @@ export function AdminDashboard({
           </div>
         )}
 
-        {/* TAB 3: BLOCKED DATES */}
+        {/* TAB 4: BLOCKED DATES */}
         {activeTab === 'blocks' && (
           <div className="mt-6 rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-6 space-y-6">
             <div>
@@ -1011,7 +1259,7 @@ export function AdminDashboard({
           </div>
         )}
 
-        {/* TAB 4: ONLINE GROUPS */}
+        {/* TAB 5: ONLINE GROUPS */}
         {activeTab === 'groups' && (
           <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
             <div className="space-y-4 lg:col-span-6">
@@ -1187,7 +1435,7 @@ export function AdminDashboard({
           </div>
         )}
 
-        {/* TAB 5: VERCEL & FIREBASE GUIDE */}
+        {/* TAB 6: VERCEL & FIREBASE GUIDE */}
         {activeTab === 'deploy' && (
           <div className="mt-6 space-y-6">
             <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-6 space-y-4">
@@ -1197,11 +1445,11 @@ export function AdminDashboard({
               <ol className="space-y-3 text-sm leading-relaxed text-[#52473D]">
                 <li>
                   <span className="font-mono-tabular font-medium text-[#B8732A]">01.</span>{' '}
-                  O projeto Firebase <span className="font-mono-tabular">gen-lang-client-0741407642</span> e o banco Firestore já estão provisionados e com as regras de segurança publicadas.
+                  O projeto Firebase <span className="font-mono-tabular">gen-lang-client-0741407642</span> e o banco Firestore já estão provisionados e com as regras de segurança (<span className="font-mono-tabular">firestore.rules</span>) publicadas.
                 </li>
                 <li>
                   <span className="font-mono-tabular font-medium text-[#B8732A]">02.</span>{' '}
-                  Caso deseje utilizar login por <em>E-mail e senha</em> além do Google Login já ativado, habilite-o em <strong>Authentication → Sign-in method</strong> no Firebase Console.
+                  <strong>Importante para cadastro de pacientes com E-mail/Senha:</strong> No Firebase Console, acesse <strong>Authentication → Sign-in method → Adicionar novo provedor → E-mail/senha</strong> e ative-o (o provedor Google já vem ativado).
                 </li>
                 <li>
                   <span className="font-mono-tabular font-medium text-[#B8732A]">03.</span>{' '}
@@ -1217,7 +1465,7 @@ export function AdminDashboard({
             <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-6">
               <div className="flex items-center justify-between gap-4">
                 <h3 className="font-display text-lg font-medium text-[#2C241E]">
-                  Regras de Segurança (firestore.rules)
+                  Referência de Segurança
                 </h3>
                 <button
                   type="button"
@@ -1225,7 +1473,7 @@ export function AdminDashboard({
                   className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-[#D4C8B6] bg-[#F6F2EA] px-3 py-1.5 text-xs font-medium text-[#2C241E] hover:bg-[#EFE4D2] cursor-pointer"
                 >
                   <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>{copiedKey === 'rules' ? 'Copiado!' : 'Copiar regras'}</span>
+                  <span>{copiedKey === 'rules' ? 'Copiado!' : 'Copiar nota'}</span>
                 </button>
               </div>
               <pre className="mt-4 overflow-x-auto rounded-xl border border-[#E2D9CB] bg-[#F6F2EA] p-4 font-mono-tabular text-xs leading-relaxed text-[#2C241E]">
@@ -1235,6 +1483,16 @@ export function AdminDashboard({
           </div>
         )}
       </main>
+
+      {drawerContext && (
+        <PatientRecordDrawer
+          patient={drawerContext.patient}
+          fallbackName={drawerContext.fallbackName}
+          fallbackContact={drawerContext.fallbackContact}
+          appointments={drawerContext.appointments}
+          onClose={() => setDrawerContext(null)}
+        />
+      )}
     </div>
   );
 }

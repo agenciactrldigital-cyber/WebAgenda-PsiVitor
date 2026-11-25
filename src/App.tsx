@@ -9,28 +9,31 @@ import { Footer } from './components/Footer';
 import { HeroSection } from './components/HeroSection';
 import { Navbar } from './components/Navbar';
 import { OnlineGroupSection } from './components/OnlineGroupSection';
+import { PatientPortal } from './components/PatientPortal';
 import {
   DEFAULT_AVAILABILITY,
   DEFAULT_GROUPS,
   subscribeAvailability,
   subscribeGroups,
   subscribeOccupiedSlots,
+  subscribePatientProfile,
 } from './services/agendaService';
 import { isAuthorizedPsychologist, subscribeToAuthChanges } from './services/authService';
-import type { AvailabilityConfig, GroupItem } from './types/agenda';
+import type { AvailabilityConfig, GroupItem, PatientProfile } from './types/agenda';
 
-function isAdminRoute(): boolean {
-  if (typeof window === 'undefined') return false;
-  return (
-    window.location.pathname.startsWith('/admin') ||
-    window.location.hash === '#admin'
-  );
+type AppRoute = 'public' | 'patient' | 'admin';
+
+function resolveRouteFromUrl(): AppRoute {
+  if (typeof window === 'undefined') return 'public';
+  const path = window.location.pathname;
+  const hash = window.location.hash;
+  if (path.startsWith('/admin') || hash === '#admin') return 'admin';
+  if (path.startsWith('/paciente') || hash === '#paciente') return 'patient';
+  return 'public';
 }
 
 export default function App() {
-  const [viewMode, setViewMode] = useState<'public' | 'admin'>(() =>
-    isAdminRoute() ? 'admin' : 'public'
-  );
+  const [viewMode, setViewMode] = useState<AppRoute>(() => resolveRouteFromUrl());
 
   const [availability, setAvailability] = useState<AvailabilityConfig & { existsInDb?: boolean }>(
     DEFAULT_AVAILABILITY
@@ -41,11 +44,12 @@ export default function App() {
 
   const [authReady, setAuthReady] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [patientProfile, setPatientProfile] = useState<PatientProfile | null>(null);
+  const [loadingPatientProfile, setLoadingPatientProfile] = useState(false);
 
   useEffect(() => {
     const handlePopState = () => {
-      setViewMode(isAdminRoute() ? 'admin' : 'public');
+      setViewMode(resolveRouteFromUrl());
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -71,13 +75,7 @@ export default function App() {
     });
 
     const unsubAuth = subscribeToAuthChanges((user: User | null) => {
-      if (user && !isAuthorizedPsychologist(user)) {
-        setAuthError('Esta conta não está autorizada a gerenciar a agenda.');
-        setCurrentUser(null);
-      } else {
-        setAuthError(null);
-        setCurrentUser(user);
-      }
+      setCurrentUser(user);
       setAuthReady(true);
     });
 
@@ -89,9 +87,29 @@ export default function App() {
     };
   }, []);
 
-  const navigateTo = (mode: 'public' | 'admin') => {
+  useEffect(() => {
+    if (!currentUser) {
+      setPatientProfile(null);
+      setLoadingPatientProfile(false);
+      return;
+    }
+    setLoadingPatientProfile(true);
+    const unsubProfile = subscribePatientProfile(
+      currentUser.uid,
+      (profile: PatientProfile | null) => {
+        setPatientProfile(profile);
+        setLoadingPatientProfile(false);
+      },
+      () => {
+        setLoadingPatientProfile(false);
+      }
+    );
+    return () => unsubProfile();
+  }, [currentUser]);
+
+  const navigateTo = (mode: AppRoute) => {
     setViewMode(mode);
-    const targetPath = mode === 'admin' ? '/admin' : '/';
+    const targetPath = mode === 'admin' ? '/admin' : mode === 'patient' ? '/paciente' : '/';
     if (window.location.pathname !== targetPath) {
       window.history.pushState({}, '', targetPath);
     }
@@ -118,18 +136,24 @@ export default function App() {
       );
     }
 
-    if (!currentUser) {
+    const authorizedAdmin = currentUser && isAuthorizedPsychologist(currentUser) ? currentUser : null;
+    const adminAuthError =
+      currentUser && !isAuthorizedPsychologist(currentUser)
+        ? 'A conta conectada não está autorizada para gerenciar a agenda do psicólogo.'
+        : null;
+
+    if (!authorizedAdmin) {
       return (
         <AdminLogin
           onBackToPublic={() => navigateTo('public')}
-          initialError={authError}
+          initialError={adminAuthError}
         />
       );
     }
 
     return (
       <AdminDashboard
-        user={currentUser}
+        user={authorizedAdmin}
         availability={availability}
         groups={groups}
         onBackToPublic={() => navigateTo('public')}
@@ -137,9 +161,26 @@ export default function App() {
     );
   }
 
+  if (viewMode === 'patient') {
+    return (
+      <PatientPortal
+        user={currentUser}
+        authReady={authReady}
+        patientProfile={patientProfile}
+        sessionDuration={availability.sessionDuration}
+        onBackToPublic={() => navigateTo('public')}
+        onBookNewSession={() => scrollToSection('agendar')}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F6F2EA] text-[#2C241E]">
-      <Navbar onScrollToSection={scrollToSection} />
+      <Navbar
+        isPatientSignedIn={Boolean(currentUser)}
+        onScrollToSection={scrollToSection}
+        onOpenPatientPortal={() => navigateTo('patient')}
+      />
       <main>
         <HeroSection
           sessionDuration={availability.sessionDuration}
@@ -150,6 +191,10 @@ export default function App() {
           availability={availability}
           occupiedSlots={occupiedSlots}
           loadingAvailability={loadingAvailability}
+          currentUser={currentUser}
+          patientProfile={patientProfile}
+          loadingPatientProfile={loadingPatientProfile}
+          onOpenPatientPortal={() => navigateTo('patient')}
         />
         <AboutApproachSection />
         <OnlineGroupSection groups={groups} />

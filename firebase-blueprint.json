@@ -5,101 +5,92 @@
       "description": "Configuração da grade flexível semanal, duração, datas bloqueadas e exceções por data do consultório online.",
       "type": "object",
       "properties": {
-        "weeklyDays": {
-          "type": "array",
-          "description": "Dias da semana ativos (0=Dom a 6=Sáb)."
-        },
-        "timeSlots": {
-          "type": "array",
-          "description": "Lista padrão de horários HH:MM."
-        },
-        "dateOverrides": {
-          "type": "object",
-          "description": "Mapa de horários customizados por data YYYY-MM-DD."
-        },
-        "sessionDuration": {
-          "type": "integer",
-          "description": "Duração da sessão em minutos (ex.: 50)."
-        },
-        "blockedDates": {
-          "type": "array",
-          "description": "Datas bloqueadas no formato YYYY-MM-DD."
-        },
-        "modalities": {
-          "type": "array",
-          "description": "Modalidades habilitadas (exclusivamente online)."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Timestamp do servidor da última atualização."
-        }
+        "weeklyDays": { "type": "array", "description": "Dias da semana ativos (0=Dom a 6=Sáb)." },
+        "timeSlots": { "type": "array", "description": "Lista padrão de horários HH:MM." },
+        "dateOverrides": { "type": "object", "description": "Mapa de horários customizados por data YYYY-MM-DD." },
+        "sessionDuration": { "type": "integer", "description": "Duração da sessão em minutos (ex.: 50)." },
+        "blockedDates": { "type": "array", "description": "Datas bloqueadas no formato YYYY-MM-DD." },
+        "modalities": { "type": "array", "description": "Modalidades habilitadas (exclusivamente online)." },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["weeklyDays", "timeSlots", "sessionDuration", "blockedDates", "modalities", "updatedAt"]
     },
-    "Appointment": {
-      "title": "Appointment",
-      "description": "Solicitação ou agendamento de sessão individual de psicoterapia online (dados sensíveis protegidos).",
+    "PatientProfile": {
+      "title": "PatientProfile",
+      "description": "Cadastro clínico complementar do paciente para atendimento psicológico online.",
       "type": "object",
       "properties": {
-        "date": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "maxLength": 10
-        },
-        "timeSlot": {
-          "type": "string",
-          "pattern": "^\\d{2}:\\d{2}$",
-          "maxLength": 5
-        },
-        "modality": {
-          "type": "string",
-          "enum": ["online"]
-        },
-        "patientName": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 120
-        },
-        "patientContact": {
-          "type": "string",
-          "minLength": 6,
-          "maxLength": 120
-        },
-        "notes": {
-          "type": "string",
-          "maxLength": 1000
-        },
-        "status": {
-          "type": "string",
-          "enum": ["pending", "confirmed", "cancelled", "completed"]
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 160 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "phone": { "type": "string", "minLength": 8, "maxLength": 40 },
+        "birthDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "maxLength": 10 },
+        "cityState": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "occupation": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "isMinor": { "type": "boolean" },
+        "guardianName": { "type": "string", "maxLength": 120 },
+        "guardianPhone": { "type": "string", "maxLength": 40 },
+        "emergencyContactName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "emergencyContactRelation": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "emergencyContactPhone": { "type": "string", "minLength": 8, "maxLength": 40 },
+        "reasonForTherapy": { "type": "string", "minLength": 3, "maxLength": 1500 },
+        "hadPreviousTherapy": { "type": "boolean" },
+        "previousTherapyDetails": { "type": "string", "maxLength": 1000 },
+        "usesMedication": { "type": "boolean" },
+        "medicationDetails": { "type": "string", "maxLength": 1000 },
+        "acceptedTerms": { "type": "boolean" },
+        "profileCompleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["date", "timeSlot", "modality", "patientName", "patientContact", "status", "createdAt"]
+      "required": [
+        "uid",
+        "email",
+        "fullName",
+        "phone",
+        "birthDate",
+        "cityState",
+        "occupation",
+        "isMinor",
+        "emergencyContactName",
+        "emergencyContactRelation",
+        "emergencyContactPhone",
+        "reasonForTherapy",
+        "hadPreviousTherapy",
+        "usesMedication",
+        "acceptedTerms",
+        "profileCompleted",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Solicitação ou agendamento de sessão individual online vinculada ao paciente autenticado.",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "maxLength": 10 },
+        "timeSlot": { "type": "string", "pattern": "^\\d{2}:\\d{2}$", "maxLength": 5 },
+        "modality": { "type": "string", "enum": ["online"] },
+        "patientUid": { "type": "string", "maxLength": 128 },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "patientContact": { "type": "string", "minLength": 6, "maxLength": 160 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "meetingLink": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "completed", "cancelled", "rescheduled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "timeSlot", "modality", "patientUid", "patientName", "patientContact", "status", "createdAt", "updatedAt"]
     },
     "OccupiedSlot": {
       "title": "OccupiedSlot",
       "description": "Registro público auxiliar sem PII indicando data e horário reservados.",
       "type": "object",
       "properties": {
-        "date": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "maxLength": 10
-        },
-        "timeSlot": {
-          "type": "string",
-          "pattern": "^\\d{2}:\\d{2}$",
-          "maxLength": 5
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "maxLength": 10 },
+        "timeSlot": { "type": "string", "pattern": "^\\d{2}:\\d{2}$", "maxLength": 5 },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["date", "timeSlot", "createdAt"]
     },
@@ -108,31 +99,12 @@
       "description": "Grupo terapêutico e vivencial online (ex.: O Mito da Masculinidade).",
       "type": "object",
       "properties": {
-        "title": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 120
-        },
-        "scheduleText": {
-          "type": "string",
-          "maxLength": 160
-        },
-        "platformLabel": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 120
-        },
-        "description": {
-          "type": "string",
-          "maxLength": 1200
-        },
-        "guidelines": {
-          "type": "array",
-          "description": "Diretrizes de participação e sigilo."
-        },
-        "active": {
-          "type": "boolean"
-        }
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "scheduleText": { "type": "string", "maxLength": 160 },
+        "platformLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 1200 },
+        "guidelines": { "type": "array", "description": "Diretrizes de participação e sigilo." },
+        "active": { "type": "boolean" }
       },
       "required": ["title", "scheduleText", "platformLabel", "active"]
     }
@@ -142,9 +114,13 @@
       "schema": { "$ref": "#/entities/AvailabilityConfig" },
       "description": "Configuração pública da agenda (documento default)."
     },
+    "/patients/{uid}": {
+      "schema": { "$ref": "#/entities/PatientProfile" },
+      "description": "Cadastro clínico complementar de cada paciente autenticado."
+    },
     "/appointments/{appointmentId}": {
       "schema": { "$ref": "#/entities/Appointment" },
-      "description": "Agendamentos e solicitações com dados pessoais restritos ao psicólogo."
+      "description": "Agendamentos vinculados ao paciente titular e acessíveis ao psicólogo."
     },
     "/occupiedSlots/{slotId}": {
       "schema": { "$ref": "#/entities/OccupiedSlot" },

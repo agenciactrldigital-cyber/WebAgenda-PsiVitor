@@ -1,8 +1,11 @@
 import {
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile,
 } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase/config';
 
@@ -37,6 +40,10 @@ export function formatAuthError(error) {
     case 'auth/wrong-password':
     case 'auth/user-not-found':
       return 'E-mail ou senha incorretos. Verifique os dados e tente novamente.';
+    case 'auth/email-already-in-use':
+      return 'Este e-mail já possui cadastro. Clique em "Já tenho conta" para entrar.';
+    case 'auth/weak-password':
+      return 'A senha deve ter pelo menos 6 caracteres.';
     case 'auth/invalid-email':
       return 'Informe um endereço de e-mail válido.';
     case 'auth/popup-closed-by-user':
@@ -46,7 +53,7 @@ export function formatAuthError(error) {
     case 'auth/unauthorized-domain':
       return 'Este domínio ainda não foi autorizado no Firebase Authentication (Authentication → Settings → Authorized domains).';
     case 'auth/operation-not-allowed':
-      return 'Este método de login ainda não foi ativado no console do Firebase Authentication.';
+      return 'O login por E-mail/Senha ainda não foi ativado no console do Firebase Authentication. Use o login com Google ou ative o provedor no console.';
     case 'auth/too-many-requests':
       return 'Muitas tentativas seguidas. Aguarde alguns instantes antes de tentar novamente.';
     default:
@@ -72,7 +79,32 @@ export async function loginWithGoogle() {
   return credential.user;
 }
 
+export async function registerPatientWithEmail(email, password, fullName) {
+  const cleanEmail = String(email || '').trim();
+  const cleanName = String(fullName || '').trim();
+  const credential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+  if (cleanName) {
+    await updateProfile(credential.user, { displayName: cleanName }).catch(() => {});
+  }
+  sendEmailVerification(credential.user).catch(() => {});
+  return credential.user;
+}
+
+export async function loginPatientWithEmail(email, password) {
+  const credential = await signInWithEmailAndPassword(auth, String(email || '').trim(), password);
+  return credential.user;
+}
+
+export async function loginPatientWithGoogle() {
+  const credential = await signInWithPopup(auth, googleProvider);
+  return credential.user;
+}
+
 export async function logoutPsychologist() {
+  await signOut(auth);
+}
+
+export async function logoutUser() {
   await signOut(auth);
 }
 

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import type { User } from 'firebase/auth';
 import {
   Calendar,
   CheckCircle2,
@@ -7,6 +8,7 @@ import {
   Clock,
   Lock,
   MessageCircle,
+  UserCheck,
   Video,
 } from 'lucide-react';
 import {
@@ -14,17 +16,24 @@ import {
   createAppointmentRequest,
   filterPastSlotsForToday,
   formatDatePtBr,
+  formatFirestoreError,
   formatShortDatePtBr,
   getSlotsForDate,
   getTodayIsoLocal,
   isDateSelectable,
 } from '../services/agendaService';
-import type { AppointmentRecord, AvailabilityConfig } from '../types/agenda';
+import type { AppointmentRecord, AvailabilityConfig, PatientProfile } from '../types/agenda';
+import { PatientAuthForm } from './PatientAuthForm';
+import { PatientIntakeForm } from './PatientIntakeForm';
 
 interface BookingSectionProps {
   availability: AvailabilityConfig;
   occupiedSlots: Set<string>;
   loadingAvailability: boolean;
+  currentUser: User | null;
+  patientProfile: PatientProfile | null;
+  loadingPatientProfile: boolean;
+  onOpenPatientPortal: () => void;
 }
 
 const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -42,6 +51,10 @@ export function BookingSection({
   availability,
   occupiedSlots,
   loadingAvailability,
+  currentUser,
+  patientProfile,
+  loadingPatientProfile,
+  onOpenPatientPortal,
 }: BookingSectionProps) {
   const today = useMemo(() => new Date(), []);
   const [viewMonth, setViewMonth] = useState({
@@ -51,15 +64,12 @@ export function BookingSection({
 
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedTime, setSelectedTime] = useState<string>('');
-  const [patientName, setPatientName] = useState('');
-  const [patientContact, setPatientContact] = useState('');
   const [notes, setNotes] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmedBooking, setConfirmedBooking] = useState<AppointmentRecord | null>(null);
 
-  // Auto-select nearest available date on initial load if none selected
   useEffect(() => {
     if (loadingAvailability || selectedDate) return;
     const base = new Date();
@@ -101,7 +111,6 @@ export function BookingSection({
     return futureOnly.filter((slot: string) => !occupiedSlots.has(`${selectedDate}_${slot}`));
   }, [availability, occupiedSlots, selectedDate]);
 
-  // Clear selectedTime if it became occupied in real time
   useEffect(() => {
     if (selectedTime && !availableTimeSlots.includes(selectedTime)) {
       setSelectedTime('');
@@ -125,22 +134,25 @@ export function BookingSection({
     setFormError(null);
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-
+  const finalizeBooking = async (name: string, contact: string) => {
+    if (!currentUser) {
+      setFormError('Faça login antes de confirmar o agendamento.');
+      return;
+    }
     if (!selectedDate || !selectedTime) {
       setFormError('Escolha uma data e um horário disponível antes de enviar.');
       return;
     }
 
+    setFormError(null);
     setSubmitting(true);
     try {
       const created = await createAppointmentRequest({
         date: selectedDate,
         timeSlot: selectedTime,
-        patientName,
-        patientContact,
+        patientUid: currentUser.uid,
+        patientName: name,
+        patientContact: contact,
         notes,
       });
       setConfirmedBooking({
@@ -148,21 +160,25 @@ export function BookingSection({
         date: created.date,
         timeSlot: created.timeSlot,
         modality: 'online',
+        patientUid: currentUser.uid,
         patientName: created.patientName,
         patientContact: created.patientContact,
         notes: created.notes,
         status: 'pending',
       });
-      setPatientName('');
-      setPatientContact('');
       setNotes('');
       setSelectedTime('');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Não foi possível enviar sua solicitação.';
-      setFormError(message);
+      setFormError(formatFirestoreError(error));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleConfirmExistingProfile = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!patientProfile) return;
+    await finalizeBooking(patientProfile.fullName, patientProfile.phone || patientProfile.email);
   };
 
   const todayIso = getTodayIsoLocal();
@@ -179,11 +195,7 @@ export function BookingSection({
             Escolha um horário para o seu encontro online
           </h2>
           <p className="mt-3 text-base text-[#52473D]">
-            As sessões têm duração de{' '}
-            <span className="font-mono-tabular font-medium text-[#2C241E]">
-              {availability.sessionDuration} minutos
-            </span>{' '}
-            e acontecem por videochamada em ambiente reservado. Apenas horários livres ficam disponíveis.
+            Escolha livremente sua data e horário. Para concluir a reserva e salvar sua ficha clínica com sigilo, você entrará na sua conta (Google ou E-mail/Senha) na etapa final.
           </p>
         </div>
 
@@ -193,7 +205,7 @@ export function BookingSection({
               <div className="max-w-xl">
                 <div className="inline-flex items-center gap-2 text-sm font-medium text-[#2F5243]">
                   <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
-                  <span>Solicitação registrada com sucesso</span>
+                  <span>Solicitação registrada na sua Área do Paciente</span>
                 </div>
 
                 <h3 className="mt-3 font-display text-2xl font-medium text-[#2C241E]">
@@ -201,7 +213,7 @@ export function BookingSection({
                 </h3>
 
                 <p className="mt-3 text-base leading-relaxed text-[#52473D]">
-                  Sua solicitação foi enviada com sigilo. Em breve entrarei em contato pelo canal informado para confirmar o horário e compartilhar o link da nossa sala virtual.
+                  Sua ficha clínica e solicitação foram salvas com sigilo. Assim que eu confirmar o horário, você receberá meu contato e o link da sala virtual ficará disponível na sua Área do Paciente.
                 </p>
 
                 <div className="mt-6 grid grid-cols-1 gap-4 rounded-xl border border-[#D4DFD7] bg-[#FFFDF9] p-5 sm:grid-cols-3">
@@ -219,22 +231,28 @@ export function BookingSection({
                   </div>
                   <div>
                     <p className="font-mono-tabular text-xs text-[#665B50]">Atendimento</p>
-                    <p className="mt-1 text-sm font-medium text-[#2C241E]">
-                      100% Online
-                    </p>
+                    <p className="mt-1 text-sm font-medium text-[#2C241E]">100% Online</p>
                   </div>
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 sm:min-w-[270px]">
+              <div className="flex flex-col gap-3 sm:min-w-[280px]">
+                <button
+                  type="button"
+                  onClick={onOpenPatientPortal}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#2F5243] px-5 py-3 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] transition-colors whitespace-nowrap cursor-pointer"
+                >
+                  <UserCheck className="h-4 w-4" aria-hidden="true" />
+                  <span>Ir para Área do Paciente</span>
+                </button>
                 <a
                   href={buildPatientWhatsAppUrl(confirmedBooking, availability.sessionDuration)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#2F5243] px-5 py-3 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] transition-colors whitespace-nowrap"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-[#2F5243] bg-[#FFFDF9] px-5 py-3 text-sm font-medium text-[#2F5243] hover:bg-[#E9EFEA]/60 transition-colors whitespace-nowrap"
                 >
                   <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                  <span>Confirmar também no WhatsApp</span>
+                  <span>Enviar aviso pelo WhatsApp</span>
                 </a>
                 <button
                   type="button"
@@ -248,8 +266,8 @@ export function BookingSection({
           </div>
         ) : (
           <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-start">
-            {/* Column 1: Calendar & Free Time Slots */}
-            <div className="rounded-2xl border border-[#E2D9CB] bg-[#F6F2EA]/55 p-5 sm:p-7 lg:col-span-7">
+            {/* Column 1: Calendar & Free Time Slots (always visible before login) */}
+            <div className="rounded-2xl border border-[#E2D9CB] bg-[#F6F2EA]/55 p-5 sm:p-7 lg:col-span-6">
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2D9CB] pb-4">
                 <div className="flex items-center gap-2.5">
                   <Calendar className="h-4 w-4 text-[#2F5243]" aria-hidden="true" />
@@ -303,7 +321,7 @@ export function BookingSection({
                     const selectable = isDateSelectable(availability, cell.iso);
                     const dayFreeSlots = selectable
                       ? filterPastSlotsForToday(getSlotsForDate(availability, cell.iso), cell.iso).filter(
-                          (slot) => !occupiedSlots.has(`${cell.iso}_${slot}`)
+                          (slot: string) => !occupiedSlots.has(`${cell.iso}_${slot}`)
                         )
                       : [];
                     const hasOpenSlots = dayFreeSlots.length > 0;
@@ -327,9 +345,7 @@ export function BookingSection({
                         }`}
                       >
                         <span>{cell.day}</span>
-                        {isToday && !isSelected && (
-                          <span className="sr-only">(Hoje)</span>
-                        )}
+                        {isToday && !isSelected && <span className="sr-only">(Hoje)</span>}
                         {hasOverride && hasOpenSlots && !isSelected && (
                           <span
                             className="absolute bottom-1 h-1 w-3 rounded-full bg-[#B8732A]"
@@ -363,7 +379,7 @@ export function BookingSection({
                   </p>
                 ) : availableTimeSlots.length === 0 ? (
                   <div className="mt-4 rounded-xl border border-[#E2D9CB] bg-[#FFFDF9] p-4 text-sm text-[#665B50]">
-                    Não há horários disponíveis para esta data. Escolha outro dia no calendário ou entre em contato pelo WhatsApp para verificar encaixes.
+                    Não há horários disponíveis para esta data. Escolha outro dia no calendário.
                   </div>
                 ) : (
                   <div className="mt-4 grid grid-cols-3 gap-2.5 sm:grid-cols-4">
@@ -392,18 +408,15 @@ export function BookingSection({
               </div>
             </div>
 
-            {/* Column 2: Patient Request Form */}
-            <form
-              onSubmit={handleSubmit}
-              className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-5 sm:p-7 lg:col-span-5"
-            >
+            {/* Column 2: Contextual Auth -> Complementary Intake -> Confirm */}
+            <div className="rounded-2xl border border-[#E2D9CB] bg-[#FFFDF9] p-5 sm:p-7 lg:col-span-6">
               <div className="flex items-center justify-between gap-4 border-b border-[#E2D9CB] pb-4">
                 <div>
                   <h3 className="font-display text-lg font-medium text-[#2C241E]">
-                    Seus dados para contato
+                    Confirmar agendamento
                   </h3>
                   <p className="mt-0.5 text-xs text-[#665B50]">
-                    Atendimento individual · 100% Online
+                    Atendimento individual · 100% Online ({availability.sessionDuration} min)
                   </p>
                 </div>
                 <span className="inline-flex items-center gap-1.5 font-mono-tabular text-xs text-[#2F5243]">
@@ -415,91 +428,138 @@ export function BookingSection({
               <div className="mt-5 rounded-xl bg-[#EFE4D2]/55 px-4 py-3 text-sm text-[#2C241E] border border-[#E2D9CB]">
                 {selectedDate && selectedTime ? (
                   <div className="flex items-center justify-between gap-2">
-                    <span>Horário escolhido:</span>
+                    <span>Horário selecionado:</span>
                     <span className="font-mono-tabular font-medium">
                       {formatShortDatePtBr(selectedDate)} · {selectedTime}
                     </span>
                   </div>
                 ) : (
                   <span className="text-[#665B50]">
-                    Selecione uma data e um horário ao lado para prosseguir.
+                    Escolha uma data e um horário ao lado para prosseguir.
                   </span>
                 )}
               </div>
 
-              <div className="mt-5 space-y-4">
-                <div>
-                  <label htmlFor="patientName" className="block text-sm font-medium text-[#2C241E]">
-                    Nome completo
-                  </label>
-                  <input
-                    id="patientName"
-                    type="text"
-                    required
-                    maxLength={120}
-                    value={patientName}
-                    onChange={(e) => setPatientName(e.target.value)}
-                    placeholder="Como prefere ser chamado(a)"
-                    className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3.5 py-2.5 text-sm text-[#2C241E] placeholder:text-[#9A8E80] focus:border-[#2F5243] focus:outline-none focus:ring-2 focus:ring-[#2F5243]/20"
+              {!currentUser ? (
+                <div className="mt-5">
+                  <PatientAuthForm
+                    compact
+                    title="Entre ou cadastre-se para confirmar"
+                    subtitle="Seu acesso salva sua ficha clínica e libera a Área do Paciente com o link da sessão e histórico."
                   />
                 </div>
+              ) : loadingPatientProfile ? (
+                <div className="mt-6 space-y-3">
+                  <div className="h-12 rounded-lg bg-[#F6F2EA] animate-pulse" />
+                  <div className="h-24 rounded-lg bg-[#F6F2EA] animate-pulse" />
+                </div>
+              ) : !patientProfile?.profileCompleted ? (
+                <div className="mt-5 space-y-4">
+                  <div className="rounded-xl border border-[#E6C79C] bg-[#FDF4E6]/70 px-4 py-3 text-xs leading-relaxed text-[#52473D]">
+                    Conectado como <span className="font-mono-tabular font-medium text-[#2C241E]">{currentUser.email}</span>. Complete sua ficha clínica complementar abaixo para concluir sua solicitação.
+                  </div>
 
-                <div>
-                  <label htmlFor="patientContact" className="block text-sm font-medium text-[#2C241E]">
-                    WhatsApp ou E-mail
-                  </label>
-                  <input
-                    id="patientContact"
-                    type="text"
-                    required
-                    maxLength={120}
-                    value={patientContact}
-                    onChange={(e) => setPatientContact(e.target.value)}
-                    placeholder="(88) 99999-9999 ou seu@email.com"
-                    className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3.5 py-2.5 text-sm text-[#2C241E] placeholder:text-[#9A8E80] focus:border-[#2F5243] focus:outline-none focus:ring-2 focus:ring-[#2F5243]/20"
+                  <div>
+                    <label htmlFor="sessionNotesBeforeIntake" className="block text-xs font-medium text-[#2C241E]">
+                      Observação específica para este horário <span className="font-normal text-[#665B50]">(opcional)</span>
+                    </label>
+                    <input
+                      id="sessionNotesBeforeIntake"
+                      type="text"
+                      maxLength={1000}
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Ex.: preferência de assunto para o primeiro encontro"
+                      className="mt-1 min-h-[40px] w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3 text-sm"
+                    />
+                  </div>
+
+                  {formError && (
+                    <div
+                      role="alert"
+                      className="rounded-lg border border-[#D99B9B] bg-[#FDF2F2] px-4 py-3 text-xs text-[#7A2727]"
+                    >
+                      {formError}
+                    </div>
+                  )}
+
+                  <PatientIntakeForm
+                    user={currentUser}
+                    existingProfile={patientProfile}
+                    submitLabel={
+                      selectedDate && selectedTime
+                        ? 'Salvar ficha e solicitar horário'
+                        : 'Salvar ficha clínica'
+                    }
+                    onSaved={async ({ fullName, phone }) => {
+                      if (selectedDate && selectedTime) {
+                        await finalizeBooking(fullName, phone || currentUser.email || '');
+                      }
+                    }}
                   />
                 </div>
+              ) : (
+                <form onSubmit={handleConfirmExistingProfile} className="mt-5 space-y-4">
+                  <div className="rounded-xl border border-[#E2D9CB] bg-[#F6F2EA]/60 p-4 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-[#2C241E]">{patientProfile.fullName}</p>
+                        <p className="font-mono-tabular text-xs text-[#665B50]">
+                          {patientProfile.phone} · {patientProfile.email}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onOpenPatientPortal}
+                        className="text-xs font-medium text-[#2F5243] hover:underline cursor-pointer"
+                      >
+                        Ver / editar cadastro
+                      </button>
+                    </div>
+                  </div>
 
-                <div>
-                  <label htmlFor="patientNotes" className="block text-sm font-medium text-[#2C241E]">
-                    Como você chega hoje? <span className="font-normal text-[#665B50]">(opcional)</span>
-                  </label>
-                  <textarea
-                    id="patientNotes"
-                    rows={3}
-                    maxLength={1000}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Se desejar, compartilhe brevemente o que motivou sua busca neste momento."
-                    className="mt-1.5 block w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3.5 py-2.5 text-sm text-[#2C241E] placeholder:text-[#9A8E80] focus:border-[#2F5243] focus:outline-none focus:ring-2 focus:ring-[#2F5243]/20"
-                  />
-                </div>
-              </div>
+                  <div>
+                    <label htmlFor="patientNotes" className="block text-sm font-medium text-[#2C241E]">
+                      Como você chega para este encontro?{' '}
+                      <span className="font-normal text-[#665B50]">(opcional)</span>
+                    </label>
+                    <textarea
+                      id="patientNotes"
+                      rows={3}
+                      maxLength={1000}
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Se desejar, deixe uma nota breve sobre este atendimento."
+                      className="mt-1.5 block w-full rounded-lg border border-[#D4C8B6] bg-[#FFFDF9] px-3.5 py-2.5 text-sm text-[#2C241E] placeholder:text-[#9A8E80] focus:border-[#2F5243] focus:outline-none"
+                    />
+                  </div>
 
-              {formError && (
-                <div
-                  role="alert"
-                  className="mt-4 rounded-lg border border-[#D99B9B] bg-[#FDF2F2] px-4 py-3 text-sm text-[#7A2727]"
-                >
-                  {formError}
-                </div>
+                  {formError && (
+                    <div
+                      role="alert"
+                      className="rounded-lg border border-[#D99B9B] bg-[#FDF2F2] px-4 py-3 text-sm text-[#7A2727]"
+                    >
+                      {formError}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={submitting || !selectedDate || !selectedTime}
+                    className="flex min-h-[48px] w-full items-center justify-center rounded-lg bg-[#2F5243] px-5 py-3 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] disabled:bg-[#9BA9A1] disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer"
+                  >
+                    {submitting ? 'Registrando solicitação...' : 'Solicitar horário online'}
+                  </button>
+
+                  <p className="flex items-start gap-2 text-xs leading-relaxed text-[#665B50]">
+                    <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2F5243]" aria-hidden="true" />
+                    <span>
+                      Sigilo clínico garantido: suas informações e seu histórico são acessíveis apenas a você e ao psicólogo Vitor Gomes.
+                    </span>
+                  </p>
+                </form>
               )}
-
-              <button
-                type="submit"
-                disabled={submitting || !selectedDate || !selectedTime}
-                className="mt-6 flex min-h-[48px] w-full items-center justify-center rounded-lg bg-[#2F5243] px-5 py-3 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] disabled:bg-[#9BA9A1] disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2F5243] focus-visible:ring-offset-2"
-              >
-                {submitting ? 'Registrando solicitação...' : 'Solicitar horário online'}
-              </button>
-
-              <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-[#665B50]">
-                <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2F5243]" aria-hidden="true" />
-                <span>
-                  Sigilo clínico garantido: seus dados e observações são acessíveis exclusivamente ao psicólogo Vitor Gomes.
-                </span>
-              </p>
-            </form>
+            </div>
           </div>
         )}
       </div>

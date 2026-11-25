@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Menu, X } from 'lucide-react';
 
 interface NavbarProps {
+  isPatientSignedIn: boolean;
   onScrollToSection: (sectionId: string) => void;
+  onOpenPatientPortal: () => void;
 }
 
 const NAV_LINKS = [
@@ -12,7 +14,11 @@ const NAV_LINKS = [
   { id: 'duvidas', label: 'Dúvidas' },
 ];
 
-export function Navbar({ onScrollToSection }: NavbarProps) {
+export function Navbar({
+  isPatientSignedIn,
+  onScrollToSection,
+  onOpenPatientPortal,
+}: NavbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleNavigate = (id: string) => {
@@ -50,10 +56,13 @@ export function Navbar({ onScrollToSection }: NavbarProps) {
         <div className="flex items-center gap-3 shrink-0">
           <button
             type="button"
-            onClick={() => handleNavigate('agendar')}
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onOpenPatientPortal();
+            }}
             className="hidden sm:inline-flex items-center justify-center rounded-lg bg-[#2F5243] px-4 py-2 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2F5243] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F6F2EA]"
           >
-            Agendar Sessão
+            {isPatientSignedIn ? 'Minha Área' : 'Área do Paciente'}
           </button>
 
           <button
@@ -83,10 +92,13 @@ export function Navbar({ onScrollToSection }: NavbarProps) {
             ))}
             <button
               type="button"
-              onClick={() => handleNavigate('agendar')}
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenPatientPortal();
+              }}
               className="mt-2 flex min-h-[44px] w-full items-center justify-center rounded-lg bg-[#2F5243] px-4 py-2.5 text-sm font-medium text-[#FFFDF9] hover:bg-[#244034] transition-colors cursor-pointer"
             >
-              Agendar Sessão
+              {isPatientSignedIn ? 'Minha Área' : 'Área do Paciente'}
             </button>
           </nav>
         </div>

@@ -8,6 +8,8 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -55,7 +57,7 @@ export function formatFirestoreError(error) {
     try {
       const parsed = JSON.parse(rawMessage);
       if (String(parsed.error || '').toLowerCase().includes('permission')) {
-        return 'Permissão negada no Firestore. Verifique as regras de segurança (firestore.rules) e o login autorizado.';
+        return 'Permissão negada no Firestore. Verifique as regras de segurança (firestore.rules) e se sua conta está autenticada.';
       }
       return parsed.error || 'Erro ao acessar o Firestore.';
     } catch {
@@ -64,7 +66,7 @@ export function formatFirestoreError(error) {
   }
   const code = error?.code || '';
   if (code === 'permission-denied' || rawMessage.toLowerCase().includes('permission')) {
-    return 'Permissão negada no Firestore. Verifique as regras de segurança (firestore.rules) e o login autorizado.';
+    return 'Permissão negada no Firestore. Verifique as regras de segurança (firestore.rules) e se sua conta está autenticada.';
   }
   if (code === 'unavailable') {
     return 'Sem conexão com o banco de dados no momento. Verifique sua internet e tente novamente.';
@@ -227,11 +229,219 @@ export function subscribeOccupiedSlots(onData, onError) {
   );
 }
 
-export async function createAppointmentRequest({ date, timeSlot, patientName, patientContact, notes }) {
+// --- PATIENT PROFILE & HISTORY ---
+
+export function subscribePatientProfile(uid, onData, onError) {
+  if (!uid) {
+    onData(null);
+    return () => {};
+  }
+  const ref = doc(db, 'patients', uid);
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        onData(null);
+        return;
+      }
+      const d = snapshot.data();
+      onData({
+        uid: d.uid || uid,
+        email: d.email || '',
+        fullName: d.fullName || '',
+        phone: d.phone || '',
+        birthDate: d.birthDate || '',
+        cityState: d.cityState || '',
+        occupation: d.occupation || '',
+        isMinor: Boolean(d.isMinor),
+        guardianName: d.guardianName || '',
+        guardianPhone: d.guardianPhone || '',
+        emergencyContactName: d.emergencyContactName || '',
+        emergencyContactRelation: d.emergencyContactRelation || '',
+        emergencyContactPhone: d.emergencyContactPhone || '',
+        reasonForTherapy: d.reasonForTherapy || '',
+        hadPreviousTherapy: Boolean(d.hadPreviousTherapy),
+        previousTherapyDetails: d.previousTherapyDetails || '',
+        usesMedication: Boolean(d.usesMedication),
+        medicationDetails: d.medicationDetails || '',
+        acceptedTerms: Boolean(d.acceptedTerms),
+        profileCompleted: Boolean(d.profileCompleted),
+        createdAt: d.createdAt || null,
+        updatedAt: d.updatedAt || null,
+      });
+    },
+    (error) => {
+      if (onError) onError(formatFirestoreError(error));
+    }
+  );
+}
+
+export async function savePatientProfile(uid, profileInput, isExistingProfile = false) {
+  if (!uid) throw new Error('Faça login para salvar seu cadastro.');
+
+  const payload = {
+    uid,
+    email: String(profileInput.email || '').trim(),
+    fullName: String(profileInput.fullName || '').trim(),
+    phone: String(profileInput.phone || '').trim(),
+    birthDate: String(profileInput.birthDate || '').trim(),
+    cityState: String(profileInput.cityState || '').trim(),
+    occupation: String(profileInput.occupation || '').trim(),
+    isMinor: Boolean(profileInput.isMinor),
+    guardianName: profileInput.isMinor ? String(profileInput.guardianName || '').trim() : '',
+    guardianPhone: profileInput.isMinor ? String(profileInput.guardianPhone || '').trim() : '',
+    emergencyContactName: String(profileInput.emergencyContactName || '').trim(),
+    emergencyContactRelation: String(profileInput.emergencyContactRelation || '').trim(),
+    emergencyContactPhone: String(profileInput.emergencyContactPhone || '').trim(),
+    reasonForTherapy: String(profileInput.reasonForTherapy || '').trim(),
+    hadPreviousTherapy: Boolean(profileInput.hadPreviousTherapy),
+    previousTherapyDetails: profileInput.hadPreviousTherapy
+      ? String(profileInput.previousTherapyDetails || '').trim()
+      : '',
+    usesMedication: Boolean(profileInput.usesMedication),
+    medicationDetails: profileInput.usesMedication
+      ? String(profileInput.medicationDetails || '').trim()
+      : '',
+    acceptedTerms: Boolean(profileInput.acceptedTerms),
+    profileCompleted: true,
+    updatedAt: serverTimestamp(),
+  };
+
+  if (payload.fullName.length < 2) throw new Error('Informe seu nome completo.');
+  if (payload.phone.length < 8) throw new Error('Informe um WhatsApp válido.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.birthDate)) throw new Error('Informe sua data de nascimento.');
+  if (payload.cityState.length < 2) throw new Error('Informe sua cidade e estado.');
+  if (payload.occupation.length < 2) throw new Error('Informe sua ocupação ou área de estudo.');
+  if (payload.isMinor && (payload.guardianName.length < 2 || payload.guardianPhone.length < 8)) {
+    throw new Error('Para menores de 18 anos, informe nome e telefone do responsável.');
+  }
+  if (
+    payload.emergencyContactName.length < 2 ||
+    payload.emergencyContactRelation.length < 2 ||
+    payload.emergencyContactPhone.length < 8
+  ) {
+    throw new Error('Preencha os dados completos do contato de emergência.');
+  }
+  if (payload.reasonForTherapy.length < 3) {
+    throw new Error('Descreva brevemente o que motivou sua busca pela terapia.');
+  }
+  if (!payload.acceptedTerms) {
+    throw new Error('É necessário concordar com os termos de atendimento online e sigilo.');
+  }
+
+  const ref = doc(db, 'patients', uid);
+  try {
+    if (isExistingProfile) {
+      await updateDoc(ref, payload);
+    } else {
+      await setDoc(ref, {
+        ...payload,
+        createdAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `patients/${uid}`);
+  }
+}
+
+export function subscribeAllPatients(onData, onError) {
+  const ref = collection(db, 'patients');
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      /** @type {import('../types/agenda').PatientProfile[]} */
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        const d = docSnap.data();
+        list.push({
+          uid: d.uid || docSnap.id,
+          email: d.email || '',
+          fullName: d.fullName || '',
+          phone: d.phone || '',
+          birthDate: d.birthDate || '',
+          cityState: d.cityState || '',
+          occupation: d.occupation || '',
+          isMinor: Boolean(d.isMinor),
+          guardianName: d.guardianName || '',
+          guardianPhone: d.guardianPhone || '',
+          emergencyContactName: d.emergencyContactName || '',
+          emergencyContactRelation: d.emergencyContactRelation || '',
+          emergencyContactPhone: d.emergencyContactPhone || '',
+          reasonForTherapy: d.reasonForTherapy || '',
+          hadPreviousTherapy: Boolean(d.hadPreviousTherapy),
+          previousTherapyDetails: d.previousTherapyDetails || '',
+          usesMedication: Boolean(d.usesMedication),
+          medicationDetails: d.medicationDetails || '',
+          acceptedTerms: Boolean(d.acceptedTerms),
+          profileCompleted: Boolean(d.profileCompleted),
+          createdAt: d.createdAt || null,
+          updatedAt: d.updatedAt || null,
+        });
+      });
+      list.sort((a, b) => a.fullName.localeCompare(b.fullName, 'pt-BR'));
+      onData(list);
+    },
+    (error) => {
+      if (onError) onError(formatFirestoreError(error));
+    }
+  );
+}
+
+export function subscribePatientAppointments(uid, onData, onError) {
+  if (!uid) {
+    onData([]);
+    return () => {};
+  }
+  const q = query(collection(db, 'appointments'), where('patientUid', '==', uid));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      /** @type {import('../types/agenda').AppointmentRecord[]} */
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        const d = docSnap.data();
+        list.push({
+          id: docSnap.id,
+          date: d.date || '',
+          timeSlot: d.timeSlot || '',
+          modality: d.modality || 'online',
+          patientUid: d.patientUid || '',
+          patientName: d.patientName || '',
+          patientContact: d.patientContact || '',
+          notes: d.notes || '',
+          meetingLink: d.meetingLink || '',
+          status: d.status || 'pending',
+          createdAt: d.createdAt || null,
+          updatedAt: d.updatedAt || null,
+        });
+      });
+      list.sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        return b.timeSlot.localeCompare(a.timeSlot);
+      });
+      onData(list);
+    },
+    (error) => {
+      if (onError) onError(formatFirestoreError(error));
+    }
+  );
+}
+
+export async function createAppointmentRequest({
+  date,
+  timeSlot,
+  patientUid,
+  patientName,
+  patientContact,
+  notes,
+}) {
   const cleanName = String(patientName || '').trim();
   const cleanContact = String(patientContact || '').trim();
   const cleanNotes = String(notes || '').trim();
 
+  if (!patientUid) {
+    throw new Error('Faça login para registrar seu agendamento.');
+  }
   if (!date || !timeSlot) {
     throw new Error('Selecione uma data e um horário livre antes de continuar.');
   }
@@ -251,11 +461,13 @@ export async function createAppointmentRequest({ date, timeSlot, patientName, pa
     date,
     timeSlot,
     modality: 'online',
+    patientUid,
     patientName: cleanName,
     patientContact: cleanContact,
     notes: cleanNotes,
     status: 'pending',
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 
   batch.set(slotRef, {
@@ -275,6 +487,7 @@ export async function createAppointmentRequest({ date, timeSlot, patientName, pa
     date,
     timeSlot,
     modality: 'online',
+    patientUid,
     patientName: cleanName,
     patientContact: cleanContact,
     notes: cleanNotes,
@@ -295,11 +508,14 @@ export function subscribeAppointments(onData, onError) {
           date: d.date || '',
           timeSlot: d.timeSlot || '',
           modality: d.modality || 'online',
+          patientUid: d.patientUid || '',
           patientName: d.patientName || '',
           patientContact: d.patientContact || '',
           notes: d.notes || '',
+          meetingLink: d.meetingLink || '',
           status: d.status || 'pending',
           createdAt: d.createdAt || null,
+          updatedAt: d.updatedAt || null,
         });
       });
       list.sort((a, b) => {
@@ -314,14 +530,22 @@ export function subscribeAppointments(onData, onError) {
   );
 }
 
-export async function updateAppointmentStatus(appointment, nextStatus) {
+export async function updateAppointmentStatus(appointment, nextStatus, meetingLink) {
   const batch = writeBatch(db);
   const appointmentRef = doc(db, 'appointments', appointment.id);
   const slotRef = doc(db, 'occupiedSlots', toOccupiedSlotDocId(appointment.date, appointment.timeSlot));
 
-  batch.update(appointmentRef, { status: nextStatus });
+  const updateFields = {
+    status: nextStatus,
+    updatedAt: serverTimestamp(),
+  };
+  if (meetingLink !== undefined) {
+    updateFields.meetingLink = String(meetingLink || '').trim();
+  }
 
-  if (nextStatus === 'cancelled') {
+  batch.update(appointmentRef, updateFields);
+
+  if (nextStatus === 'cancelled' || nextStatus === 'rescheduled') {
     batch.delete(slotRef);
   } else {
     batch.set(slotRef, {
@@ -335,6 +559,18 @@ export async function updateAppointmentStatus(appointment, nextStatus) {
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `appointments/${appointment.id}`);
+  }
+}
+
+export async function updateAppointmentMeetingLink(appointmentId, meetingLink) {
+  const ref = doc(db, 'appointments', appointmentId);
+  try {
+    await updateDoc(ref, {
+      meetingLink: String(meetingLink || '').trim(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `appointments/${appointmentId}`);
   }
 }
 
@@ -432,7 +668,10 @@ export function buildPsychologistWhatsAppConfirmUrl(appointment, sessionDuration
   const digits = String(appointment.patientContact || '').replace(/\D/g, '');
   const normalizedPhone = digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
   const formattedDate = formatShortDatePtBr(appointment.date);
-  const message = `Olá, ${appointment.patientName}! Aqui é o psicólogo Vitor Gomes (CRP 11/20859).\n\nSeu horário de psicoterapia online está confirmado para ${formattedDate} às ${appointment.timeSlot} (duração de ${sessionDuration} min).\n\nAntes do nosso encontro, enviarei o link da sala virtual por aqui. Até breve!`;
+  const linkInfo = appointment.meetingLink
+    ? `\nLink da sala virtual: ${appointment.meetingLink}`
+    : '\nAntes do nosso encontro, enviarei o link da sala virtual por aqui e na sua Área do Paciente.';
+  const message = `Olá, ${appointment.patientName}! Aqui é o psicólogo Vitor Gomes (CRP 11/20859).\n\nSeu horário de psicoterapia online está confirmado para ${formattedDate} às ${appointment.timeSlot} (duração de ${sessionDuration} min).${linkInfo}\n\nAté breve!`;
   if (normalizedPhone.length >= 12) {
     return `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
   }
