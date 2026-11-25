@@ -1,0 +1,155 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isPsychologist() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          "agenciactrldigital@gmail.com",
+          "psi.josevitorgf@gmail.com",
+          "psi.vitorgomes@gmail.com"
+        ];
+    }
+
+    function isValidAvailability(data) {
+      return data.keys().hasAll(['weeklyDays', 'timeSlots', 'sessionDuration', 'blockedDates', 'modalities', 'updatedAt'])
+        && data.keys().hasOnly(['weeklyDays', 'timeSlots', 'dateOverrides', 'sessionDuration', 'blockedDates', 'modalities', 'updatedAt'])
+        && data.weeklyDays is list
+        && data.weeklyDays.size() <= 7
+        && data.timeSlots is list
+        && data.timeSlots.size() <= 48
+        && data.sessionDuration is int
+        && data.sessionDuration >= 20
+        && data.sessionDuration <= 120
+        && data.blockedDates is list
+        && data.blockedDates.size() <= 365
+        && data.modalities is list
+        && data.modalities.size() == 1
+        && data.modalities.hasOnly(['online'])
+        && (!('dateOverrides' in data) || data.dateOverrides is map)
+        && data.updatedAt == request.time;
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll(['title', 'scheduleText', 'platformLabel', 'active'])
+        && data.keys().hasOnly(['title', 'scheduleText', 'platformLabel', 'description', 'guidelines', 'active'])
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 120
+        && data.scheduleText is string
+        && data.scheduleText.size() <= 160
+        && data.platformLabel is string
+        && data.platformLabel.size() > 0
+        && data.platformLabel.size() <= 120
+        && (!('description' in data) || (data.description is string && data.description.size() <= 1200))
+        && (!('guidelines' in data) || (data.guidelines is list && data.guidelines.size() <= 20))
+        && data.active is bool;
+    }
+
+    function isValidOccupiedSlot(data) {
+      return data.keys().hasAll(['date', 'timeSlot', 'createdAt'])
+        && data.keys().hasOnly(['date', 'timeSlot', 'createdAt'])
+        && data.date is string
+        && data.date.size() == 10
+        && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.timeSlot is string
+        && data.timeSlot.size() == 5
+        && data.timeSlot.matches('^\\d{2}:\\d{2}$')
+        && data.createdAt == request.time;
+    }
+
+    function isValidAppointmentCreate(data) {
+      return data.keys().hasAll(['date', 'timeSlot', 'modality', 'patientName', 'patientContact', 'status', 'createdAt'])
+        && data.keys().hasOnly(['date', 'timeSlot', 'modality', 'patientName', 'patientContact', 'notes', 'status', 'createdAt'])
+        && data.date is string
+        && data.date.size() == 10
+        && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.timeSlot is string
+        && data.timeSlot.size() == 5
+        && data.timeSlot.matches('^\\d{2}:\\d{2}$')
+        && data.modality == 'online'
+        && data.patientName is string
+        && data.patientName.size() >= 2
+        && data.patientName.size() <= 120
+        && data.patientContact is string
+        && data.patientContact.size() >= 6
+        && data.patientContact.size() <= 120
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && data.status == 'pending'
+        && data.createdAt == request.time;
+    }
+
+    function isValidAppointmentUpdate(data) {
+      return data.keys().hasAll(['date', 'timeSlot', 'modality', 'patientName', 'patientContact', 'status', 'createdAt'])
+        && data.keys().hasOnly(['date', 'timeSlot', 'modality', 'patientName', 'patientContact', 'notes', 'status', 'createdAt'])
+        && data.date is string
+        && data.date.size() == 10
+        && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.timeSlot is string
+        && data.timeSlot.size() == 5
+        && data.timeSlot.matches('^\\d{2}:\\d{2}$')
+        && data.modality == 'online'
+        && data.patientName is string
+        && data.patientName.size() >= 2
+        && data.patientName.size() <= 120
+        && data.patientContact is string
+        && data.patientContact.size() >= 6
+        && data.patientContact.size() <= 120
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && data.status in ['pending', 'confirmed', 'cancelled', 'completed']
+        && data.createdAt == existing().createdAt;
+    }
+
+    match /availability/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if true;
+      allow create, update: if isValidId(docId) && isPsychologist() && isValidAvailability(incoming());
+      allow delete: if isValidId(docId) && isPsychologist();
+    }
+
+    match /groups/{groupId} {
+      allow get: if isValidId(groupId);
+      allow list: if true;
+      allow create, update: if isValidId(groupId) && isPsychologist() && isValidGroup(incoming());
+      allow delete: if isValidId(groupId) && isPsychologist();
+    }
+
+    match /occupiedSlots/{slotId} {
+      allow get: if isValidId(slotId);
+      allow list: if true;
+      allow create: if isValidId(slotId) && isValidOccupiedSlot(incoming());
+      allow update, delete: if isValidId(slotId) && isPsychologist();
+    }
+
+    match /appointments/{appointmentId} {
+      allow get: if isValidId(appointmentId) && isPsychologist();
+      allow list: if isPsychologist();
+      allow create: if isValidId(appointmentId) && isValidAppointmentCreate(incoming());
+      allow update: if isValidId(appointmentId)
+        && isPsychologist()
+        && isValidAppointmentUpdate(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if isValidId(appointmentId) && isPsychologist();
+    }
+  }
+}

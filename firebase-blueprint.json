@@ -1,0 +1,158 @@
+{
+  "entities": {
+    "AvailabilityConfig": {
+      "title": "AvailabilityConfig",
+      "description": "Configuração da grade flexível semanal, duração, datas bloqueadas e exceções por data do consultório online.",
+      "type": "object",
+      "properties": {
+        "weeklyDays": {
+          "type": "array",
+          "description": "Dias da semana ativos (0=Dom a 6=Sáb)."
+        },
+        "timeSlots": {
+          "type": "array",
+          "description": "Lista padrão de horários HH:MM."
+        },
+        "dateOverrides": {
+          "type": "object",
+          "description": "Mapa de horários customizados por data YYYY-MM-DD."
+        },
+        "sessionDuration": {
+          "type": "integer",
+          "description": "Duração da sessão em minutos (ex.: 50)."
+        },
+        "blockedDates": {
+          "type": "array",
+          "description": "Datas bloqueadas no formato YYYY-MM-DD."
+        },
+        "modalities": {
+          "type": "array",
+          "description": "Modalidades habilitadas (exclusivamente online)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp do servidor da última atualização."
+        }
+      },
+      "required": ["weeklyDays", "timeSlots", "sessionDuration", "blockedDates", "modalities", "updatedAt"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Solicitação ou agendamento de sessão individual de psicoterapia online (dados sensíveis protegidos).",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "maxLength": 10
+        },
+        "timeSlot": {
+          "type": "string",
+          "pattern": "^\\d{2}:\\d{2}$",
+          "maxLength": 5
+        },
+        "modality": {
+          "type": "string",
+          "enum": ["online"]
+        },
+        "patientName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "patientContact": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 120
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "confirmed", "cancelled", "completed"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["date", "timeSlot", "modality", "patientName", "patientContact", "status", "createdAt"]
+    },
+    "OccupiedSlot": {
+      "title": "OccupiedSlot",
+      "description": "Registro público auxiliar sem PII indicando data e horário reservados.",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "maxLength": 10
+        },
+        "timeSlot": {
+          "type": "string",
+          "pattern": "^\\d{2}:\\d{2}$",
+          "maxLength": 5
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["date", "timeSlot", "createdAt"]
+    },
+    "TherapeuticGroup": {
+      "title": "TherapeuticGroup",
+      "description": "Grupo terapêutico e vivencial online (ex.: O Mito da Masculinidade).",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "scheduleText": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "platformLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "guidelines": {
+          "type": "array",
+          "description": "Diretrizes de participação e sigilo."
+        },
+        "active": {
+          "type": "boolean"
+        }
+      },
+      "required": ["title", "scheduleText", "platformLabel", "active"]
+    }
+  },
+  "firestore": {
+    "/availability/{docId}": {
+      "schema": { "$ref": "#/entities/AvailabilityConfig" },
+      "description": "Configuração pública da agenda (documento default)."
+    },
+    "/appointments/{appointmentId}": {
+      "schema": { "$ref": "#/entities/Appointment" },
+      "description": "Agendamentos e solicitações com dados pessoais restritos ao psicólogo."
+    },
+    "/occupiedSlots/{slotId}": {
+      "schema": { "$ref": "#/entities/OccupiedSlot" },
+      "description": "Slots ocupados sem dados pessoais para exibição na agenda pública."
+    },
+    "/groups/{groupId}": {
+      "schema": { "$ref": "#/entities/TherapeuticGroup" },
+      "description": "Grupos terapêuticos online divulgados na página pública."
+    }
+  }
+}

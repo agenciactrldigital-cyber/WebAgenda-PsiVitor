@@ -1,0 +1,21 @@
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDn5hegzfiP_MTQJkP51dB0dsZLbj-w2lQ",
+  authDomain: "agenda-psivitor.firebaseapp.com",
+  projectId: "agenda-psivitor",
+  storageBucket: "agenda-psivitor.firebasestorage.app",
+  messagingSenderId: "886009444178",
+  appId: "1:886009444178:web:d448f8b0020b1e12b4ac8b",
+  measurementId: "G-YGT0QGW7XQ"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
